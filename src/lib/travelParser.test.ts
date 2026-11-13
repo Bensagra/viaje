@@ -1,5 +1,8 @@
+import { findCities } from './places';
 import { describe, expect, it } from 'vitest';
 import {
+  passengersIn,
+  withDocName,
   displayName,
   extractFields,
   julianToDate,
@@ -252,5 +255,219 @@ describe('extractFields', () => {
   it('no toma una fecha con puntos como hora', () => {
     const f = extractFields('Hotel Roma\nCheck-in 18.11.2026\nCheck-out 21.11.2026\nhabitación doble', ctx, null);
     expect(f).toMatchObject({ kind: 'hotel', date: '2026-11-18', end_date: '2026-11-21', time: null });
+  });
+});
+
+describe('ciudades y estaciones', () => {
+  it('Renfe: estaciones por etiqueta, coche, plaza y viajero en minúsculas', () => {
+    const f = extractFields(
+      `RENFE
+Billete electrónico
+Origen: MADRID-PUERTA DE ATOCHA
+Destino: BARCELONA-SANTS
+Fecha: 21/11/2026
+Salida 08:30   Llegada 11:15
+Coche 5  Plaza 07A
+Viajero: Santiago Pérez
+Localizador: X4K9P2
+AVE 03063`,
+      ctx,
+      null,
+    );
+    expect(f).toMatchObject({
+      kind: 'train',
+      provider: 'Renfe',
+      origin: 'Madrid-Puerta De Atocha',
+      destination: 'Barcelona-Sants',
+      date: '2026-11-21',
+      time: '08:30',
+      seat: '07A',
+      number: 'AVE 03063',
+      reference: 'X4K9P2',
+      passenger: 'Santiago Pérez',
+      title: 'Madrid-Puerta De Atocha → Barcelona-Sants',
+    });
+    expect(f.details).toMatchObject({ coach: '5', arrival: '11:15' });
+    expect(matchPerson(f.passenger, people)?.id).toBe('p2');
+  });
+
+  it('Trenitalia: horario + estación en cada línea', () => {
+    const f = extractFields(
+      `Trenitalia
+Frecciarossa 9531
+20/11/2026
+09:15 Roma Termini
+10:51 Firenze S.M.N.
+Passeggero: JULIETA GRIC
+Carrozza 5 Posto 7A
+Codice PNR: K7Q2ZZ`,
+      ctx,
+      null,
+    );
+    expect(f).toMatchObject({
+      kind: 'train',
+      origin: 'Roma Termini',
+      destination: 'Firenze S.M.N',
+      time: '09:15',
+      number: 'Frecciarossa 9531',
+      seat: '7A',
+      reference: 'K7Q2ZZ',
+      passenger: 'Julieta Gric',
+    });
+    expect(f.details.arrival).toBe('10:51');
+  });
+
+  it('FlixBus de los dos: queda para Ambos y sin un pasajero suelto', () => {
+    const [doc] = splitIntoDocs(
+      [
+        {
+          index: 0,
+          text: `FlixBus
+Viernes, 22 de noviembre de 2026
+07:00 Milano Lampugnano
+10:25 Venezia Tronchetto
+Pasajeros: Julieta Gric, Santiago Perez
+Número de reserva: 3012345678`,
+          codes: [],
+        },
+      ],
+      ctx,
+    );
+    expect(doc).toMatchObject({
+      kind: 'bus',
+      provider: 'FlixBus',
+      origin: 'Milano Lampugnano',
+      destination: 'Venezia Tronchetto',
+      date: '2026-11-22',
+      time: '07:00',
+      personId: null,
+      passenger: null,
+      reference: '3012345678',
+    });
+  });
+
+  it('hotel en inglés: ciudad, horarios en AM/PM', () => {
+    const f = extractFields(
+      `Hotel Le Marais
+12 Rue de Bretagne, 75003 Paris, France
+Check-in: Mon, Nov 24, 2026 (from 3:00 PM)
+Check-out: Thu, Nov 27, 2026 (until 11:00 AM)
+Confirmation number: 98765432
+Guest name: Julieta Gric`,
+      ctx,
+      null,
+    );
+    expect(f).toMatchObject({
+      kind: 'hotel',
+      provider: 'Hotel Le Marais',
+      destination: 'París',
+      date: '2026-11-24',
+      end_date: '2026-11-27',
+      time: '15:00',
+      reference: '98765432',
+    });
+    expect(f.details).toMatchObject({ checkout: '11:00', nights: '3' });
+  });
+
+  it('Airbnb: ciudad sin dirección completa, llegada y salida', () => {
+    const f = extractFields(
+      `Airbnb
+Departamento luminoso en Trastevere
+Roma, Lacio, Italia
+Llegada: jue, 20 nov 2026 · 15:00
+Salida: dom, 23 nov 2026 · 11:00
+Código de confirmación: HMABC12345
+Anfitrión: Marco`,
+      ctx,
+      null,
+    );
+    expect(f).toMatchObject({
+      kind: 'hotel',
+      destination: 'Roma',
+      date: '2026-11-20',
+      end_date: '2026-11-23',
+      time: '15:00',
+      reference: 'HMABC12345',
+    });
+  });
+
+  it('hotel de Booking: la ciudad del hotel, no la sede de Booking en Ámsterdam', () => {
+    const f = extractFields(
+      `Booking.com
+Tu reserva en Hotel Gran Vía Madrid está confirmada
+Check-in: vie, 14 nov 2026
+Check-out: lun, 17 nov 2026
+Booking.com B.V., Herengracht 597, 1017 CE Amsterdam`,
+      ctx,
+      null,
+    );
+    expect(f.destination).toBe('Madrid');
+  });
+
+  it('vuelo: ciudad debajo de cada código', () => {
+    const f = extractFields(boardingPage('', 'GRIC/JULIETA', '23A'), ctx, null);
+    expect(f.details).toMatchObject({ from_city: 'Buenos Aires', to_city: 'Madrid' });
+  });
+
+  it('no toma el nombre de una persona como ciudad', () => {
+    expect(findCities('Reserva de Santiago Mendoza en Madrid', ['SANTIAGO', 'MENDOZA'])).toEqual(['Madrid']);
+    expect(findCities('Firenze, München y Zürich')).toEqual(['Florencia', 'Múnich', 'Zúrich']);
+  });
+});
+
+describe('apodos', () => {
+  it('con un apodo que no se parece al nombre, hace falta el nombre en pasajes', () => {
+    const tato: Person = { ...santi, name: 'Tato' };
+    expect(matchPerson('PEREZ/SANTIAGO MR', [juli, tato])).toBeNull();
+    expect(matchPerson('PEREZ/SANTIAGO MR', [juli, { ...tato, doc_name: 'PEREZ SANTIAGO' }])?.id).toBe('p2');
+    // varios nombres guardados para la misma persona
+    expect(matchPerson('Santiago M. Perez', [juli, { ...tato, doc_name: 'GOMEZ SANTI; PEREZ SANTIAGO' }])?.id).toBe(
+      'p2',
+    );
+  });
+});
+
+describe('withDocName', () => {
+  it('suma nombres sin repetir', () => {
+    expect(withDocName(null, 'Santiago Pérez')).toBe('SANTIAGO PÉREZ');
+    expect(withDocName('PEREZ SANTIAGO', 'Santiago Gomez')).toBe('PEREZ SANTIAGO; SANTIAGO GOMEZ');
+    expect(withDocName('SANTIAGO PEREZ', 'santiago pérez')).toBe('SANTIAGO PEREZ');
+  });
+});
+
+describe('apodos al importar', () => {
+  const tato: Person = { ...santi, name: 'Tato' };
+
+  it('un código con un nombre que no es de nadie queda sin asignar (no se lo da al otro)', () => {
+    const docs = splitIntoDocs(
+      [
+        {
+          index: 0,
+          text: 'Trenitalia\nPasajero 1: JULIETA GRIC\nPasajero 2: SANTIAGO PEREZ',
+          codes: [
+            { format: 'QRCode', text: 'A', y: 100 },
+            { format: 'QRCode', text: 'B', y: 500 },
+          ],
+        },
+      ],
+      { ...ctx, people: [juli, tato] },
+    );
+    expect(docs.map((d) => [d.personId, d.passenger])).toEqual([
+      ['p1', 'Julieta Gric'],
+      [null, 'Santiago Perez'],
+    ]);
+  });
+
+  it('una lista de pasajeros es un documento de los dos', () => {
+    const [doc] = splitIntoDocs(
+      [{ index: 0, text: 'FlixBus\n07:00 Milano\n10:25 Venezia\nPasajeros: Julieta Gric, Santiago Perez', codes: [] }],
+      { ...ctx, people: [juli, tato] },
+    );
+    expect(doc).toMatchObject({ personId: null, passenger: null });
+    expect(passengersIn('Pasajeros: Julieta Gric, Santiago Perez y Ana Lopez')).toEqual([
+      'Julieta Gric',
+      'Santiago Perez',
+      'Ana Lopez',
+    ]);
   });
 });

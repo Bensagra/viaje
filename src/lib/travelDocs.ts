@@ -8,7 +8,8 @@ import zxingWasmUrl from 'zxing-wasm/reader/zxing_reader.wasm?url';
 import * as api from './api';
 import { prepareUpload } from './image';
 import { loadPdfjs, ocr, type OcrProgress } from './ocr';
-import { splitIntoDocs, type DocDraft, type TravelContext } from './travelParser';
+import { getDocFile } from './docFiles';
+import { fieldsFromDraft, splitIntoDocs, type DocDraft, type TravelContext } from './travelParser';
 import type { DocFields, TravelDoc } from './types';
 
 // El WASM va con la app (no desde un CDN) para que quede cacheado y funcione sin conexión.
@@ -214,7 +215,7 @@ async function pdfWithPages(file: File, indices: number[]): Promise<Uint8Array> 
 const slug = (s: string) =>
   s
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^A-Za-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 50) || 'documento';
@@ -291,4 +292,70 @@ export async function personPdf(docs: TravelDoc[]): Promise<Uint8Array> {
     }
   }
   return out.save();
+}
+
+/** Vuelve a leer un documento ya guardado (desde su PDF o imagen) con la versión actual del lector. */
+export async function rereadDocument(
+  doc: TravelDoc,
+  ctx: TravelContext,
+): Promise<{ draft: DocDraft; code: FoundCode | null } | null> {
+  if (!doc.file_path) return null;
+  const blob = await getDocFile(doc.file_path);
+  const name = doc.file_path.split('/').pop() ?? 'documento';
+  const type =
+    blob.type && blob.type !== 'application/octet-stream'
+      ? blob.type
+      : name.endsWith('.pdf')
+        ? 'application/pdf'
+        : 'image/jpeg';
+  const file = await processFile(new File([blob], name, { type }));
+  const drafts = draftsFor(file, ctx);
+  // Si la página tenía los códigos de los dos, es el del mismo código (o el de la misma persona).
+  const draft =
+    drafts.find((d) => doc.code_text && d.code?.text === doc.code_text) ??
+    drafts.find((d) => d.personId && d.personId === doc.person_id) ??
+    drafts[0];
+  return draft ? { draft, code: codeOf(file, draft) } : null;
+}
+
+const REREAD_KEYS = [
+  'kind',
+  'title',
+  'provider',
+  'date',
+  'end_date',
+  'time',
+  'origin',
+  'destination',
+  'number',
+  'seat',
+  'reference',
+  'passenger',
+] as const;
+
+/**
+ * Cambios que trae una relectura. Lo que se corrigió a mano (details.edited) no se pisa, salvo `overwrite`
+ * (cuando se relee un documento puntual y se revisa antes de guardar).
+ */
+export function rereadPatch(
+  doc: TravelDoc,
+  draft: DocDraft,
+  code: FoundCode | null,
+  overwrite: boolean,
+): Partial<DocFields> {
+  const fresh = fieldsFromDraft(draft);
+  const keep = !overwrite && doc.details?.edited === '1';
+  const patch: Partial<DocFields> = {};
+  for (const key of REREAD_KEYS) {
+    const value = fresh[key];
+    if (value == null || value === '' || value === doc[key]) continue;
+    if (keep && doc[key] != null && doc[key] !== '') continue;
+    Object.assign(patch, { [key]: value });
+  }
+  const details = keep ? { ...fresh.details, ...doc.details } : { ...doc.details, ...fresh.details };
+  if (JSON.stringify(details) !== JSON.stringify(doc.details ?? {})) patch.details = details;
+  if (!keep && draft.personId && draft.personId !== doc.person_id) patch.person_id = draft.personId;
+  if (!doc.code_image && code)
+    Object.assign(patch, { code_format: code.format, code_text: code.text, code_image: code.image });
+  return patch;
 }

@@ -27,7 +27,7 @@ export function DocFieldsForm({
   const [more, setMore] = useState(!compact);
   const kind = value.kind ?? 'other';
   const text = (key: keyof DocFields, label: string, placeholder?: string) => (
-    <label className="field">
+    <label className="field" key={key}>
       <span className="label">{label}</span>
       <input
         value={(value[key] as string | null | undefined) ?? ''}
@@ -74,6 +74,12 @@ export function DocFieldsForm({
           <span className="label">{kind === 'hotel' ? 'Hora de check-in' : 'Hora'}</span>
           <input type="time" value={value.time ?? ''} onChange={(e) => onChange({ time: e.target.value || null })} />
         </label>
+        {kind === 'hotel'
+          ? text('destination', 'Ciudad', 'Madrid')
+          : [
+              text('origin', 'Desde', kind === 'flight' ? 'EZE' : 'Roma Termini'),
+              text('destination', 'Hasta', kind === 'flight' ? 'MAD' : 'Firenze S.M.N.'),
+            ]}
         {(kind === 'hotel' || kind === 'car') && (
           <label className="field">
             <span className="label">{kind === 'hotel' ? 'Check-out' : 'Devolución'}</span>
@@ -94,8 +100,6 @@ export function DocFieldsForm({
         <div className="grid2">
           {text('provider', kind === 'flight' ? 'Aerolínea' : kind === 'hotel' ? 'Hotel' : 'Empresa')}
           {text('reference', 'Código de reserva')}
-          {kind !== 'hotel' && text('origin', 'Origen', 'EZE')}
-          {kind !== 'hotel' && text('destination', 'Destino', 'MAD')}
           {kind !== 'hotel' &&
             text('number', kind === 'flight' ? 'Vuelo' : 'Número', kind === 'flight' ? 'AR1132' : '')}
           {kind !== 'hotel' && text('seat', 'Asiento')}

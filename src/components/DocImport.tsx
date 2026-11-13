@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { errorMessage } from '../lib/receipts';
 import type { ProcessedFile } from '../lib/travelDocs';
-import { titleFor, type DocDraft } from '../lib/travelParser';
+import * as api from '../lib/api';
+import { fieldsFromDraft, matchPerson, titleFor, withDocName, type DocDraft } from '../lib/travelParser';
 import type { DocFields } from '../lib/types';
 import { useTrip } from '../state';
 import { Modal } from './ui';
@@ -16,24 +17,6 @@ interface Item {
 }
 
 let nextKey = 0;
-
-const fieldsFrom = (d: DocDraft): Partial<DocFields> => ({
-  person_id: d.personId,
-  kind: d.kind,
-  title: d.title,
-  provider: d.provider,
-  date: d.date,
-  end_date: d.end_date,
-  time: d.time,
-  origin: d.origin,
-  destination: d.destination,
-  number: d.number,
-  seat: d.seat,
-  reference: d.reference,
-  passenger: d.passenger,
-  details: d.details,
-  notes: null,
-});
 
 export function DocImport({ onClose }: { onClose: () => void }) {
   const { ctx, reload, notify } = useTrip();
@@ -58,7 +41,7 @@ export function DocImport({ onClose }: { onClose: () => void }) {
         const fileIndex = files.length + newFiles.length;
         newFiles.push(processed);
         for (const draft of travel.draftsFor(processed, travelCtx)) {
-          newItems.push({ key: nextKey++, fileIndex, draft, fields: fieldsFrom(draft), include: true });
+          newItems.push({ key: nextKey++, fileIndex, draft, fields: fieldsFromDraft(draft), include: true });
         }
       } catch (err) {
         setErrors((e) => [...e, `${file.name}: ${errorMessage(err)}`]);
@@ -114,6 +97,8 @@ export function DocImport({ onClose }: { onClose: () => void }) {
       if (!sources.has(item.fileIndex)) sources.set(item.fileIndex, travel.uploadSource(ctx.trip.id, file));
       return sources.get(item.fileIndex)!;
     };
+    // Si se eligió a mano de quién es un pase, su nombre real queda aprendido para los próximos.
+    const learned = new Map<string, string[]>();
     for (const [n, item] of chosen.entries()) {
       setStatus(`Guardando ${n + 1} de ${chosen.length}…`);
       try {
@@ -129,11 +114,40 @@ export function DocImport({ onClose }: { onClose: () => void }) {
           });
         const personName = ctx.people.find((p) => p.id === f.person_id)?.name ?? null;
         const sourcePath = await sourceFor(item);
-        await travel.saveDraft(ctx.trip.id, files[item.fileIndex], item.draft, { ...f, title }, personName, sourcePath);
+        const initial = fieldsFromDraft(item.draft);
+        const edited = (Object.keys(f) as (keyof DocFields)[]).some(
+          (k) => k !== 'details' && (f[k] ?? null) !== (initial[k] ?? null),
+        );
+        const details = { ...(f.details ?? {}), ...(edited ? { edited: '1' } : {}) };
+        await travel.saveDraft(
+          ctx.trip.id,
+          files[item.fileIndex],
+          item.draft,
+          { ...f, title, details },
+          personName,
+          sourcePath,
+        );
+        // Solo si la persona la eligieron a mano (no lo que propuso la app).
+        const passenger = item.draft.passenger;
+        const personId = f.person_id;
+        if (
+          personId &&
+          personId !== item.draft.personId &&
+          passenger &&
+          matchPerson(passenger, ctx.people)?.id !== personId
+        ) {
+          learned.set(personId, [...(learned.get(personId) ?? []), passenger]);
+        }
       } catch (err) {
         failed.push(item);
         setErrors((e) => [...e, `${item.fields.title || 'Documento'}: ${errorMessage(err)}`]);
       }
+    }
+    for (const [personId, names] of learned) {
+      const person = ctx.people.find((p) => p.id === personId);
+      if (!person) continue;
+      const docName = names.reduce<string | null>((acc, name) => withDocName(acc, name), person.doc_name ?? null);
+      await api.updatePerson(personId, { doc_name: docName }).catch(() => undefined);
     }
     await reload();
     setStatus(null);

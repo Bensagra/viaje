@@ -4,8 +4,8 @@ import { personIndex } from '../lib/calc';
 import { forgetDocFiles, getDocFile, isPdf, renderPdfPages } from '../lib/docFiles';
 import { daysInclusive, fmtDay, todayISO } from '../lib/format';
 import { errorMessage } from '../lib/receipts';
-import { titleFor } from '../lib/travelParser';
-import type { DocFields, TravelDoc } from '../lib/types';
+import { matchPerson, nameTokens, titleFor, withDocName } from '../lib/travelParser';
+import type { DocFields, Person, TravelDoc } from '../lib/types';
 import { useTrip } from '../state';
 import { DocFieldsForm, KIND_META } from './DocFields';
 import { DocImport } from './DocImport';
@@ -56,8 +56,9 @@ function downloadBlob(name: string, blob: Blob) {
 }
 
 export function WalletView() {
-  const { data, ctx, notify } = useTrip();
+  const { data, ctx, notify, reload } = useTrip();
   const [who, setWho] = useState<string>('all');
+  const [rereading, setRereading] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   // doc: abrir el pase directamente en su documento original
   const [open, setOpen] = useState<{ id: string; doc: boolean } | null>(null);
@@ -95,6 +96,39 @@ export function WalletView() {
     } finally {
       setExporting(false);
     }
+  }
+
+  /** Relee todo con la versión actual del lector (ciudades, estaciones, nombres) sin pisar lo corregido a mano. */
+  async function rereadAll() {
+    if (
+      !confirm(
+        'Vuelvo a leer todos los pases y reservas para completar ciudades, estaciones y nombres. Lo que corregiste a mano no se pisa. ¿Sigo?',
+      )
+    )
+      return;
+    const travel = await import('../lib/travelDocs');
+    const travelCtx = { people: ctx.people, tripStart: ctx.trip.start_date, tripEnd: ctx.trip.end_date };
+    let changed = 0;
+    let failed = 0;
+    for (const [n, doc] of data.documents.entries()) {
+      setRereading(`Leyendo ${n + 1} de ${data.documents.length}…`);
+      try {
+        const result = await travel.rereadDocument(doc, travelCtx);
+        const patch = result ? travel.rereadPatch(doc, result.draft, result.code, false) : {};
+        if (Object.keys(patch).length) {
+          await api.updateDocument(doc.id, patch);
+          changed++;
+        }
+      } catch {
+        failed++;
+      }
+    }
+    await reload();
+    setRereading(null);
+    notify(
+      `${changed} actualizado${changed === 1 ? '' : 's'}${failed ? ` · ${failed} no se pudieron leer` : ''}`,
+      failed ? 'error' : 'ok',
+    );
   }
 
   const renderDay = ([day, entries]: [string, Entry[]]) => (
@@ -141,6 +175,11 @@ export function WalletView() {
                 {exporting ? 'Armando…' : `PDF de ${person.name}`}
               </button>
             )}
+            {data.documents.length > 0 && (
+              <button onClick={rereadAll} disabled={Boolean(rereading)}>
+                Volver a leer
+              </button>
+            )}
             <button className="primary" onClick={() => setImporting(true)} disabled={Boolean(data.documentsError)}>
               + Pases y reservas
             </button>
@@ -151,6 +190,9 @@ export function WalletView() {
           pases de los dos, cada uno queda con el suyo) y se ordenan por día.
         </p>
       </section>
+
+      {rereading && <div className="notice">{rereading}</div>}
+      <UnknownNames />
 
       {visible.length === 0 && !data.documentsError && (
         <section className="card stack-sm">
@@ -199,6 +241,83 @@ export function WalletView() {
   );
 }
 
+/**
+ * Nombres de pasajeros que no coinciden con nadie (en la app usan apodos, en los pasajes el nombre real).
+ * Al elegir de quién es, se guarda como "nombre en pasajes" y se reacomodan sus documentos.
+ */
+function UnknownNames() {
+  const { data, ctx, reload, notify } = useTrip();
+  const [busy, setBusy] = useState(false);
+  // "Santiago Perez" y "Santiago Pérez" son el mismo nombre.
+  const keyOf = (name: string) => nameTokens(name).join(' ');
+  const names = useMemo(() => {
+    const groups = new Map<string, { name: string; count: number }>();
+    for (const d of data.documents) {
+      if (!d.passenger || matchPerson(d.passenger, ctx.people)) continue;
+      const group = groups.get(keyOf(d.passenger)) ?? { name: d.passenger, count: 0 };
+      group.count += 1;
+      groups.set(keyOf(d.passenger), group);
+    }
+    return [...groups.values()];
+  }, [data.documents, ctx.people]);
+  if (!names.length) return null;
+
+  async function act(task: () => Promise<void>, message: string) {
+    setBusy(true);
+    try {
+      await task();
+      await reload();
+      notify(message);
+    } catch (err) {
+      notify(errorMessage(err), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const docsOf = (name: string) => data.documents.filter((d) => d.passenger && keyOf(d.passenger) === keyOf(name));
+  const link = (name: string, person: Person) =>
+    act(async () => {
+      await api.updatePerson(person.id, { doc_name: withDocName(person.doc_name, name) });
+      for (const d of docsOf(name))
+        if (d.person_id !== person.id) await api.updateDocument(d.id, { person_id: person.id });
+    }, `Listo: ${name} es ${person.name}. Lo recuerdo para los próximos.`);
+  const dismiss = (name: string) =>
+    act(async () => {
+      for (const d of docsOf(name)) await api.updateDocument(d.id, { passenger: null });
+    }, 'Listo, no lo vuelvo a preguntar.');
+
+  return (
+    <section className="card stack-sm">
+      <h3>¿Quién es quién?</h3>
+      <p className="hint">
+        En los pasajes figuran estos nombres y en la app usan apodos. Elegí de quién es cada uno: queda guardado (en
+        Config → Personas) y los pases se acomodan solos.
+      </p>
+      {names.map(({ name, count }) => (
+        <div key={name} className="notice">
+          <span className="grow">
+            <strong>{name}</strong>
+            <span className="hint">
+              {' '}
+              · {count} documento{count === 1 ? '' : 's'}
+            </span>
+          </span>
+          {ctx.people.map((p, i) => (
+            <button key={p.id} className="small" disabled={busy} onClick={() => void link(name, p)}>
+              <Swatch index={i as 0 | 1} />
+              {p.name}
+            </button>
+          ))}
+          <button className="small" disabled={busy} onClick={() => void dismiss(name)} title="No es un pasajero">
+            Ninguno
+          </button>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 const TIME_LABEL: Record<TravelDoc['kind'], string> = {
   flight: 'Sale',
   train: 'Sale',
@@ -223,6 +342,37 @@ function Who({ doc }: { doc: TravelDoc }) {
         </>
       )}
     </span>
+  );
+}
+
+const isAirport = (s: string | null) => Boolean(s && /^[A-Z]{3}$/.test(s));
+
+/** "EZE ✈️ MAD" con las ciudades abajo; estaciones de tren en letra más chica; hoteles con su ciudad. */
+function Route({ doc, big }: { doc: TravelDoc; big?: boolean }) {
+  const meta = KIND_META[doc.kind];
+  if (doc.kind === 'hotel' || !doc.origin || !doc.destination) {
+    return (
+      <div className={`pass-title${big ? ' big' : ''}`}>
+        {doc.title || doc.provider || meta.label}
+        {doc.kind === 'hotel' && doc.destination && <span className="pass-sub">📍 {doc.destination}</span>}
+      </div>
+    );
+  }
+  const airports = isAirport(doc.origin) && isAirport(doc.destination);
+  const cities = [doc.details?.from_city, doc.details?.to_city];
+  return (
+    <div>
+      <div className={`pass-route${big ? ' big' : ''}${airports ? '' : ' places'}`}>
+        <span>{doc.origin}</span>
+        <span className="pass-arrow">{meta.icon}</span>
+        <span>{doc.destination}</span>
+      </div>
+      {airports && (cities[0] || cities[1]) && (
+        <div className="pass-meta">
+          {cities[0] ?? doc.origin} → {cities[1] ?? doc.destination}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -267,15 +417,7 @@ function PassCard({
           </span>
           <Who doc={doc} />
         </div>
-        {doc.origin && doc.destination ? (
-          <div className="pass-route">
-            <span>{doc.origin}</span>
-            <span className="pass-arrow">{meta.icon}</span>
-            <span>{doc.destination}</span>
-          </div>
-        ) : (
-          <div className="pass-title">{title}</div>
-        )}
+        <Route doc={doc} />
         <div className="pass-meta">
           {[doc.number, ...facts].filter(Boolean).join(' · ')}
           {doc.code_image && <span className="pass-code-hint"> · ▦ código</span>}
@@ -304,16 +446,19 @@ function PassSheet({
   onNavigate: (id: string) => void;
   onClose: () => void;
 }) {
-  const { data, reload, notify } = useTrip();
+  const { data, ctx, reload, notify } = useTrip();
   const doc = data.documents.find((d) => d.id === id);
   const [editing, setEditing] = useState(false);
   const [zoom, setZoom] = useState(false);
+  const [proposal, setProposal] = useState<Partial<DocFields> | null>(null);
+  const [rereading, setRereading] = useState(false);
   if (!doc) return null;
   const meta = KIND_META[doc.kind];
   const at = order.indexOf(id);
 
   const fields: [string, string | null | undefined][] = [
     ['Pasajero', doc.passenger],
+    ['Ciudad', doc.kind === 'hotel' ? doc.destination : null],
     ['Fecha', doc.date ? fmtDay(doc.date) : null],
     [TIME_LABEL[doc.kind], doc.time],
     [
@@ -323,7 +468,10 @@ function PassSheet({
         : null,
     ],
     ['Noches', doc.details?.nights],
+    ['Llega', doc.details?.arrival],
     ['Embarque', doc.details?.boarding],
+    ['Coche', doc.details?.coach],
+    ['Andén', doc.details?.platform],
     ['Puerta', doc.details?.gate],
     ['Grupo', doc.details?.group],
     ['Asiento', doc.seat],
@@ -351,7 +499,39 @@ function PassSheet({
     }
   }
 
-  if (editing) return <DocEditor doc={doc} onClose={() => setEditing(false)} />;
+  async function reread() {
+    if (!doc) return;
+    setRereading(true);
+    try {
+      const travel = await import('../lib/travelDocs');
+      const result = await travel.rereadDocument(doc, {
+        people: ctx.people,
+        tripStart: ctx.trip.start_date,
+        tripEnd: ctx.trip.end_date,
+      });
+      if (!result) throw new Error('No se pudo leer el documento.');
+      // Se abre el editor con lo leído, para revisarlo antes de guardar.
+      setProposal({ ...doc, ...travel.rereadPatch(doc, result.draft, result.code, true) });
+      setEditing(true);
+    } catch (err) {
+      notify(errorMessage(err), 'error');
+    } finally {
+      setRereading(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <DocEditor
+        doc={doc}
+        initial={proposal ?? undefined}
+        onClose={() => {
+          setEditing(false);
+          setProposal(null);
+        }}
+      />
+    );
+  }
 
   return (
     <Modal title={`${meta.icon} ${meta.label}`} onClose={onClose}>
@@ -361,15 +541,7 @@ function PassSheet({
             <span>{doc.provider || meta.label}</span>
             <Who doc={doc} />
           </div>
-          {doc.origin && doc.destination ? (
-            <div className="pass-route big">
-              <span>{doc.origin}</span>
-              <span className="pass-arrow">{meta.icon}</span>
-              <span>{doc.destination}</span>
-            </div>
-          ) : (
-            <div className="pass-title big">{doc.title || meta.label}</div>
-          )}
+          <Route doc={doc} big />
           <dl className="pass-fields">
             {fields
               .filter(([, v]) => v)
@@ -393,6 +565,9 @@ function PassSheet({
 
         <div className="row">
           <button onClick={() => setEditing(true)}>Editar</button>
+          <button onClick={reread} disabled={rereading}>
+            {rereading ? 'Leyendo…' : 'Volver a leer'}
+          </button>
           <button className="danger" onClick={remove}>
             Eliminar
           </button>
@@ -514,9 +689,15 @@ function OriginalDoc({ doc, focus }: { doc: TravelDoc; focus: boolean }) {
   );
 }
 
-function DocEditor({ doc, onClose }: { doc: TravelDoc; onClose: () => void }) {
-  const { reload, notify } = useTrip();
-  const [value, setValue] = useState<Partial<DocFields>>(doc);
+/** Los códigos de aeropuerto van en mayúsculas; los nombres de estaciones y ciudades, como estén. */
+const placeValue = (v: string | null | undefined) => {
+  const t = v?.trim();
+  return t ? (/^[a-z]{3}$/i.test(t) ? t.toUpperCase() : t) : null;
+};
+
+function DocEditor({ doc, initial, onClose }: { doc: TravelDoc; initial?: Partial<DocFields>; onClose: () => void }) {
+  const { ctx, reload, notify } = useTrip();
+  const [value, setValue] = useState<Partial<DocFields>>(initial ?? doc);
   const [busy, setBusy] = useState(false);
 
   async function save(e: FormEvent) {
@@ -527,7 +708,8 @@ function DocEditor({ doc, onClose }: { doc: TravelDoc; onClose: () => void }) {
         value.kind === 'hotel' && value.date && value.end_date && value.end_date > value.date
           ? String(daysInclusive(value.date, value.end_date) - 1)
           : undefined;
-      const details = { ...doc.details, ...(nights ? { nights } : {}) };
+      // edited: una relectura futura no pisa lo que se corrigió a mano.
+      const details = { ...doc.details, ...value.details, ...(nights ? { nights } : {}), edited: '1' };
       const title =
         value.title?.trim() ||
         titleFor({
@@ -545,8 +727,8 @@ function DocEditor({ doc, onClose }: { doc: TravelDoc; onClose: () => void }) {
         date: value.date ?? null,
         end_date: value.end_date ?? null,
         time: value.time ?? null,
-        origin: value.origin?.toUpperCase() ?? null,
-        destination: value.destination?.toUpperCase() ?? null,
+        origin: placeValue(value.origin),
+        destination: placeValue(value.destination),
         number: value.number ?? null,
         seat: value.seat ?? null,
         reference: value.reference ?? null,
@@ -554,6 +736,11 @@ function DocEditor({ doc, onClose }: { doc: TravelDoc; onClose: () => void }) {
         notes: value.notes ?? null,
         details,
       });
+      // Si se cambió a mano de quién es, el nombre del pasaje queda aprendido para esa persona.
+      const person = value.person_id !== doc.person_id ? ctx.people.find((p) => p.id === value.person_id) : undefined;
+      if (person && value.passenger && matchPerson(value.passenger, ctx.people)?.id !== person.id) {
+        await api.updatePerson(person.id, { doc_name: withDocName(person.doc_name, value.passenger) });
+      }
       await reload();
       notify('Guardado');
       onClose();

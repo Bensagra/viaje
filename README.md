@@ -55,6 +55,9 @@ En el celular, abrila y usá "Agregar a pantalla de inicio" para tenerla como ap
 - Un código = un pase. Las páginas sin código se suman al documento anterior, salvo que sean de otra persona o de otra reserva. Una reserva de hotel con los dos nombres queda como **Ambos**.
 - Antes de guardar ves la propuesta y podés cambiar la persona, la fecha, unir o separar páginas, o descartar algo.
 - El código se guarda recortado (blanco y negro) junto con los datos, así se ve sin internet; tocándolo se agranda a pantalla completa (los PDF417 se giran para usar todo el alto). Subí el brillo para escanearlo.
+- **Apodos**: si en la app usan apodos y en los pasajes figura el nombre real, la Wallet muestra **"¿Quién es quién?"** con los nombres que no reconoce; elegís de quién es cada uno, queda guardado como "nombre en pasajes" y se reasignan sus documentos. También aprende cuando cambiás a mano la persona de un pase.
+- Lee **ciudades y estaciones**: debajo de los códigos de aeropuerto muestra la ciudad, en trenes y buses origen y destino (y llegada, coche, asiento), y en hoteles la ciudad.
+- **Volver a leer** (arriba en la Wallet, o en cada pase) relee los documentos ya guardados con la versión actual, sin volver a subirlos. Lo que corregiste a mano no se pisa.
 - **PDF de Juli / PDF de Santi** arma un solo PDF con todos los pases y reservas de esa persona.
 - Al pie de cada pase o reserva está el **documento original**: las páginas de ese pase a la vista (con Abrir y Descargar) y, si venía en un PDF compartido, el **archivo completo** tal como se subió. Los documentos quedan guardados en el teléfono, así que también se abren sin conexión.
 

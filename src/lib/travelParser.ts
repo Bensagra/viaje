@@ -4,8 +4,9 @@
  * Funciones puras: el render de PDFs y la lectura de códigos están en travelDocs.ts.
  */
 import { addDays, daysInclusive, todayISO, toISODate } from './format';
+import { airportCity, findCities } from './places';
 import { listDates, tidyName, type DateHit } from './receiptParser';
-import type { DocKind, Person } from './types';
+import type { DocFields, DocKind, Person } from './types';
 
 // ---------------------------------------------------------------------------
 // Tarjeta de embarque (IATA Bar Coded Boarding Pass)
@@ -154,7 +155,7 @@ export const airlineName = (code: string | null | undefined) => (code ? (AIRLINE
 export function nameTokens(s: string): string[] {
   return s
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .toUpperCase()
     .split(/[^A-Z]+/)
     .filter((t) => t.length >= 2 && !TITLES.has(t));
@@ -186,7 +187,7 @@ export function peopleInText(text: string, people: Person[]): Person[] {
   const words = [
     ...text
       .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
+      .replace(/[\u0300-\u036f]/g, '')
       .toUpperCase()
       .matchAll(/[A-Z]{2,}/g),
   ];
@@ -223,13 +224,13 @@ const KIND_RULES: [DocKind, RegExp][] = [
   [
     'hotel',
     word(
-      'hotel|hostel|hostal|check-?in|check-?out|alojamiento|hospedaje|habitaci[oó]n|room|hu[eé]sped(?:es)?|guests?|noches|nights|airbnb|booking\\.com|apartamento|apartment|posada|pousada|desayuno|breakfast|anfitri[oó]n|host',
+      'hotel|hostel|hostal|check-?in|check-?out|alojamiento|hospedaje|habitaci[oó]n|room|hu[eé]sped(?:es)?|guests?|noches|nights|airbnb|booking\\.com|apartamento|departamento|apartment|posada|pousada|desayuno|breakfast|anfitri[oó]n|host',
     ),
   ],
   [
     'train',
     word(
-      'tren|train|renfe|trenitalia|italo|sncf|ouigo|iryo|eurostar|deutsche bahn|vag[oó]n|coche|and[eé]n|platform|carriage|binario|estaci[oó]n',
+      'tren|train|treno|zug|renfe|trenitalia|frecci[a-z]+|italo|sncf|tgv|ouigo|iryo|avlo|alvia|eurostar|deutsche bahn|vag[oó]n|coche|carrozza|voiture|wagen|and[eé]n|platform|carriage|binario|gleis|estaci[oó]n|stazione|gare|bahnhof',
     ),
   ],
   ['bus', word('bus|[oó]mnibus|flixbus|alsa|autob[uú]s|coach|plataforma|terminal de [oó]mnibus')],
@@ -248,6 +249,9 @@ const KIND_RULES: [DocKind, RegExp][] = [
 ];
 
 export function classify(text: string): DocKind {
+  // Una empresa de tren o bus conocida alcanza para saber el tipo.
+  const operator = OPERATORS.find(([re]) => re.test(text));
+  if (operator) return operator[2];
   let best: DocKind = 'other';
   let bestScore = 0;
   for (const [kind, re] of KIND_RULES) {
@@ -321,8 +325,37 @@ const REFERENCE_LABEL =
   /(?:c[oó]digo de reserva|n[uú]mero de reserva|n\.?[°º]?\s*de reserva|n[uú]mero de confirmaci[oó]n|confirmaci[oó]n|confirmation(?: number| code)?|booking (?:reference|number|code|ref\.?)|reservation (?:number|code)|reserva|localizador|record locator|pnr|pin)/gi;
 const REFERENCE_VALUE = /^\s*(?:n[°º.]?|#|:|-)*\s*([A-Z0-9](?:[A-Z0-9-]|\.(?=[A-Z0-9])){4,19})/i;
 const PASSENGER_LABEL =
-  /(?:nombre del pasajero|passenger name|pasajero|passenger|passageiro|passager|nombre|name)\s*[:\-]?\s*/gi;
-const PASSENGER_VALUE = /^([A-ZÁÉÍÓÚÑÜ][A-ZÁÉÍÓÚÑÜ/' -]{3,40})/;
+  /(?:nombre del pasajero|nombre y apellido|passenger name|nome (?:del )?passeggero|guest name|hu[eé]sped principal|pasajer[oa]s?|passengers?|passageiros?|passagers?|passeggeri|passeggero|viajer[oa]s?|travell?ers?|titular|reisender)\s*(?:\d+\s*)?[:\-.]?\s*/giu;
+// Nombres en mayúsculas ("PEREZ/SANTIAGO") o normales ("Santiago Pérez"), hasta 5 palabras.
+const PASSENGER_VALUE = /^([\p{Lu}][\p{L}'’-]+(?:(?: |\s?\/\s?)[\p{Lu}][\p{L}'’-]+){1,4})/u;
+const NOT_NAME_WORDS =
+  /^(?:coche|carrozza|wagen|coach|asiento|seat|posto|plaza|vuelo|flight|clase|class|tarifa|fare|documento|dni|pasaporte|passport|fecha|date|billete|ticket|adulto|adult|mr|mrs|ms)$/i;
+
+/** Todos los pasajeros de una página, en orden ("Pasajero 1: …", "Pasajero 2: …" o "Pasajeros: A, B"). */
+export function passengersIn(text: string): string[] {
+  const out: string[] = [];
+  for (const m of text.matchAll(PASSENGER_LABEL)) {
+    const start = m.index + m[0].length;
+    const line = text.slice(start, start + 120).split('\n')[0];
+    for (const part of line.split(/,|;|\s(?:y|e|and|und|et)\s|\s&\s/)) {
+      const name = cleanPassenger(part.trim().match(PASSENGER_VALUE)?.[1]);
+      if (name && !out.some((o) => nameTokens(o).join(' ') === nameTokens(name).join(' '))) out.push(name);
+      if (!name) break;
+    }
+  }
+  return out;
+}
+
+function cleanPassenger(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const words: string[] = [];
+  for (const w of raw.split(/(?: |\s?\/\s?)/)) {
+    if (NOT_NAME_WORDS.test(w)) break;
+    words.push(w);
+  }
+  return nameTokens(words.join(' ')).length >= 2 ? tidyName(words.join(' ')) : null;
+}
+
 const NOT_AIRPORTS = new Set([
   'THE',
   'AND',
@@ -433,8 +466,12 @@ export function extractFields(text: string, ctx: TravelContext, boarding: Boardi
     passenger: null,
     details: {},
   };
-  const passengerLine = afterLabel(text, PASSENGER_LABEL, PASSENGER_VALUE, 45)?.[1]?.trim();
-  if (passengerLine && nameTokens(passengerLine).length >= 2) f.passenger = tidyName(passengerLine.replace('/', ' '));
+  f.passenger = cleanPassenger(afterLabel(text, PASSENGER_LABEL, PASSENGER_VALUE, 60)?.[1]);
+  // Para no tomar "Santiago" o "Mendoza" de un nombre como si fuera una ciudad.
+  const people = [
+    ...ctx.people.flatMap((p) => nameTokens(`${p.name} ${p.doc_name ?? ''}`)),
+    ...nameTokens(f.passenger ?? ''),
+  ];
 
   if (f.kind === 'flight') {
     f.time = toTime(afterLabel(text, /(?:hora de salida|salida|sale|departure|departs|partida|dep\.?)/gi, TIME, 40));
@@ -490,11 +527,49 @@ export function extractFields(text: string, ctx: TravelContext, boarding: Boardi
       100,
     );
     if (address) f.details.address = address[1].trim();
+    f.destination = hotelCity(text, f.details.address ?? null, people);
   }
 
   if (f.kind !== 'flight' && f.kind !== 'hotel') {
     f.time = toTime(afterLabel(text, /(?:salida|departure|sale|hora|time|inicio|horario)/gi, TIME, 30));
-    f.provider = firstMeaningfulLine(text);
+    f.provider = OPERATORS.find(([re]) => re.test(text))?.[1] ?? firstMeaningfulLine(text);
+  }
+
+  if (f.kind === 'train' || f.kind === 'bus') {
+    const route = routeFromText(text);
+    const arrival = toTime(afterLabel(text, /(?:llegada|arrival|arrivo|arriv[ée]e|ankunft|llega)/gi, TIME, 30));
+    if (arrival) f.details.arrival = arrival;
+    if (route) {
+      f.origin = route.from;
+      f.destination = route.to;
+      if (route.departure) f.time = route.departure;
+      if (route.arrival) f.details.arrival = route.arrival;
+    }
+    const service =
+      text.match(TRAIN_SERVICE) ??
+      text.match(/\b(?:tren|train|treno|zug|bus|servicio)\s*(?:n[°º.]?|no\.?)?\s*(\d{3,5})\b/i);
+    if (service) f.number = service.length > 2 && service[2] ? `${service[1]} ${service[2]}` : service[1];
+    const coach = afterLabel(
+      text,
+      /(?:coche|coach|carrozza|voiture|wagen|vag[oó]n|car)\s*(?:n[°º.]?)?\s*[:\-]?/giu,
+      /^\s*(\d{1,3})\b/,
+      8,
+    );
+    if (coach) f.details.coach = coach[1];
+    const seat = afterLabel(
+      text,
+      /(?:plaza|asiento|seat|posto|place|platz|sitz|butaca)\s*(?:n[°º.]?)?\s*[:\-]?/giu,
+      /^\s*(\d{1,3}[A-F]?)\b/,
+      8,
+    );
+    if (seat) f.seat = seat[1];
+    const platform = afterLabel(
+      text,
+      /(?:and[eé]n|plataforma|platform|binario|gleis|voie|d[aá]rsena)\s*[:\-]?/giu,
+      /^\s*([A-Z]?\d{1,3}[A-Z]?)\b/,
+      8,
+    );
+    if (platform) f.details.platform = platform[1];
   }
 
   if (boarding) {
@@ -515,8 +590,137 @@ export function extractFields(text: string, ctx: TravelContext, boarding: Boardi
     f.provider = airlineName(f.number.slice(0, 2)) ?? f.provider;
   }
 
+  if (f.kind === 'flight' && f.origin && f.destination) {
+    const cityFor = (code: string) =>
+      airportCity(code) ??
+      cleanPlace(text.match(new RegExp(`(\\p{L}[\\p{L} .'’-]{1,30}?)\\s*\\(\\s*${code}\\s*\\)`, 'u'))?.[1] ?? '');
+    const from = cityFor(f.origin);
+    const to = cityFor(f.destination);
+    if (from) f.details.from_city = from;
+    if (to) f.details.to_city = to;
+  }
+
   f.title = titleFor(f);
   return f;
+}
+
+// ---------------------------------------------------------------------------
+// Estaciones, ciudades y empresas
+// ---------------------------------------------------------------------------
+
+const OPERATORS: [RegExp, string, DocKind][] = [
+  [/\brenfe\b/i, 'Renfe', 'train'],
+  [/\biryo\b/i, 'Iryo', 'train'],
+  [/\bouigo\b/i, 'Ouigo', 'train'],
+  [/trenitalia|frecciarossa|frecciargento|frecciabianca/i, 'Trenitalia', 'train'],
+  [/\bitalo\b/i, 'Italo', 'train'],
+  [/\bsncf\b|\bTGV\b|inoui/i, 'SNCF', 'train'],
+  [/eurostar/i, 'Eurostar', 'train'],
+  [/deutsche bahn|\bICE\s?\d/i, 'Deutsche Bahn', 'train'],
+  [/\b[öo]bb\b|railjet/i, 'ÖBB', 'train'],
+  [/\bSBB\b|\bCFF\b/, 'SBB', 'train'],
+  [/comboios de portugal/i, 'CP', 'train'],
+  [/flixbus/i, 'FlixBus', 'bus'],
+  [/\balsa\b/i, 'Alsa', 'bus'],
+  [/blablacar|blablabus/i, 'BlaBlaCar', 'bus'],
+  [/andesmar/i, 'Andesmar', 'bus'],
+  [/chevallier/i, 'Chevallier', 'bus'],
+  [/v[ií]a bariloche/i, 'Vía Bariloche', 'bus'],
+  [/flecha bus/i, 'Flecha Bus', 'bus'],
+  [/plusmar/i, 'Plusmar', 'bus'],
+  [/crucero del norte/i, 'Crucero del Norte', 'bus'],
+  [/national express/i, 'National Express', 'bus'],
+];
+
+const TRAIN_SERVICE =
+  /\b(Frecciarossa|Frecciargento|Frecciabianca|Italo|AVE|AVLO|Alvia|Avant|Iryo|Ouigo|TGV(?: inOui)?|ICE|IC|EC|RJX?|Eurostar|Intercity|Regionale|Euromed)\s*(\d{2,5})\b/;
+
+/** Limpia un nombre de estación o ciudad: corta en horarios, fechas o la etiqueta siguiente. */
+function cleanPlace(raw: string): string | null {
+  if (!raw || /@|https?:|www\./i.test(raw)) return null;
+  let s = raw.split(/\s{2,}|\t|\s\|\s/)[0];
+  s = s.split(/(?<![\d])\d{1,2}[:.h]\d{2}(?!\d)|\d{1,2}\/\d{1,2}/)[0];
+  s = s.replace(
+    /\b(?:fecha|date|hora|time|salida|llegada|departure|arrival|partenza|arrivo|coche|plaza|asiento|seat|clase|class|tren|train)\b.*$/i,
+    '',
+  );
+  s = s.replace(/[\s,.;:–—-]+$/u, '').trim();
+  if ((s.match(/\p{L}/gu) ?? []).length < 3 || s.length > 45) return null;
+  return tidyName(s);
+}
+
+interface Route {
+  from: string;
+  to: string;
+  departure: string | null;
+  arrival: string | null;
+}
+
+/** Origen y destino de un tren o bus: "09:15 Roma Termini" / "Origen: …" / "Roma Termini → Firenze S.M.N.". */
+export function routeFromText(text: string): Route | null {
+  // 1) Horario + estación en líneas consecutivas (Trenitalia, SNCF, FlixBus, Renfe…)
+  const stops: { place: string; time: string }[] = [];
+  for (const m of text.matchAll(
+    /^[ \t]*((?:[01]?\d|2[0-3])[:.h][0-5]\d)\s*(?:hs?\.?|hrs\.?)?[ \t]+(\p{L}[^\n]{2,60})$/gmu,
+  )) {
+    const place = cleanPlace(m[2]);
+    if (place && !stops.some((s) => s.place === place)) stops.push({ place, time: toTime(m[1].match(TIME)) ?? m[1] });
+  }
+  for (const m of text.matchAll(/^[ \t]*(\p{L}[^\n]{2,50}?)[ \t]+((?:[01]?\d|2[0-3])[:.h][0-5]\d)[ \t]*$/gmu)) {
+    const place = cleanPlace(m[1]);
+    if (place && !stops.some((s) => s.place === place)) stops.push({ place, time: toTime(m[2].match(TIME)) ?? m[2] });
+  }
+  if (stops.length >= 2)
+    return {
+      from: stops[0].place,
+      to: stops[stops.length - 1].place,
+      departure: stops[0].time,
+      arrival: stops[stops.length - 1].time,
+    };
+
+  // 2) Etiquetas al principio de la línea
+  const value = /^(\p{L}[^\n]{2,60})/u;
+  const from = afterLabel(
+    text,
+    /^[ \t]*(?:estaci[oó]n de (?:origen|salida)|origen|origin|from|desde|partenza|da|d[ée]part|abfahrt|von|sale de)\s*[:\-]?\s*/gimu,
+    value,
+    62,
+  );
+  const to = afterLabel(
+    text,
+    /^[ \t]*(?:estaci[oó]n de (?:destino|llegada)|destino|destination|to|hasta|arrivo|arriv[ée]e|ankunft|nach|llega a)\s*[:\-]?\s*/gimu,
+    value,
+    62,
+  );
+  const fromPlace = cleanPlace(from?.[1] ?? '');
+  const toPlace = cleanPlace(to?.[1] ?? '');
+  if (fromPlace && toPlace) return { from: fromPlace, to: toPlace, departure: null, arrival: null };
+
+  // 3) Flecha o guion entre dos lugares en la misma línea
+  for (const line of text.split('\n')) {
+    const arrow = line.match(/^\s*(\p{L}[^→>➔➝⟶»\n]{2,45}?)\s*(?:→|->|➔|➝|⟶|»|>)\s*(\p{L}[^\n]{2,45})$/u);
+    const parts = arrow ? [arrow[1], arrow[2]] : line.split(/\s[-–—]\s/);
+    if (parts.length !== 2) continue;
+    const [a, b] = parts.map((p) => cleanPlace(p));
+    if (a && b && (arrow || (findCities(a).length && findCities(b).length)))
+      return { from: a, to: b, departure: null, arrival: null };
+  }
+  return null;
+}
+
+/** Ciudad de un alojamiento: la de la dirección, si no la ciudad conocida que aparece (sin la sede de Booking). */
+function hotelCity(text: string, address: string | null, ignore: string[]): string | null {
+  if (address) {
+    const known = findCities(address, ignore)[0];
+    if (known) return known;
+    const postcode = address.match(/(?<!\d)\d{4,5}\s+(\p{L}[\p{L}' -]{2,30})/u);
+    if (postcode) return cleanPlace(postcode[1].split(',')[0]);
+  }
+  const cities = findCities(text, ignore);
+  if (/booking\.com/i.test(text) && cities.length > 1) return cities.find((c) => c !== 'Ámsterdam') ?? null;
+  if (cities.length) return cities[0];
+  const postcode = text.match(/(?<!\d)\d{4,5}\s+(\p{Lu}[\p{L}'-]{2,25})(?=\s*[,\n]|\s*$)/mu);
+  return postcode ? cleanPlace(postcode[1]) : null;
 }
 
 export function titleFor(f: Pick<ExtractedFields, 'kind' | 'number' | 'origin' | 'destination' | 'provider'>): string {
@@ -572,9 +776,15 @@ export function splitIntoDocs(pages: PageInput[], ctx: TravelContext): DocDraft[
       codes.forEach((code, codeIndex) => {
         const boarding = parseBCBP(code.text);
         const fields = extractFields(page.text, ctx, boarding);
+        if (!boarding && codes.length > 1) {
+          // Varios códigos sin nombre adentro: el pasajero i-ésimo de la página va con el código i-ésimo.
+          const passengers = passengersIn(page.text);
+          fields.passenger = passengers.length === codes.length ? passengers[codeIndex] : null;
+        }
         let person = matchPerson(fields.passenger, ctx.people);
-        // Varios códigos sin nombre adentro: se asignan en el orden en que aparecen los nombres en la página.
-        if (!person && !boarding)
+        // Solo sin un nombre propio del código se adivina por los nombres de la página: si el código dice
+        // "Santiago Pérez" y no es de nadie, queda sin asignar para preguntar "¿quién es quién?".
+        if (!person && !boarding && !fields.passenger)
           person = codes.length === named.length ? named[codeIndex] : named.length === 1 ? named[0] : null;
         docs.push(
           draftFrom(fields, [page.index], person, {
@@ -589,7 +799,11 @@ export function splitIntoDocs(pages: PageInput[], ctx: TravelContext): DocDraft[
     }
 
     const fields = extractFields(page.text, ctx, null);
-    const person = matchPerson(fields.passenger, ctx.people) ?? (named.length === 1 ? named[0] : null);
+    const passengers = passengersIn(page.text);
+    const person =
+      passengers.length > 1
+        ? null
+        : (matchPerson(fields.passenger, ctx.people) ?? (!fields.passenger && named.length === 1 ? named[0] : null));
     const previous = docs[docs.length - 1];
     const startsNew =
       !previous ||
@@ -598,7 +812,10 @@ export function splitIntoDocs(pages: PageInput[], ctx: TravelContext): DocDraft[
       (fields.reference && previous.reference && fields.reference !== previous.reference);
 
     if (startsNew) {
-      const shared = fields.kind === 'hotel' || (named.length > 1 && fields.kind !== 'flight');
+      const several = named.length > 1 || passengers.length > 1;
+      const shared = fields.kind === 'hotel' || (several && fields.kind !== 'flight');
+      // En un documento de los dos el "pasajero" detectado es solo uno de ellos: mejor no mostrarlo.
+      if (shared && several) fields.passenger = null;
       docs.push(draftFrom(fields, [page.index], shared ? null : person, null));
     } else {
       previous.pages.push(page.index);
@@ -620,4 +837,36 @@ export function splitIntoDocs(pages: PageInput[], ctx: TravelContext): DocDraft[
 
 function draftFrom(fields: ExtractedFields, pages: number[], person: Person | null, code: DocDraft['code']): DocDraft {
   return { ...fields, details: { ...fields.details }, pages, personId: person?.id ?? null, code, warnings: [] };
+}
+
+/** Lo leído de un documento, como campos para guardar. */
+export function fieldsFromDraft(d: DocDraft): Partial<DocFields> {
+  return {
+    person_id: d.personId,
+    kind: d.kind,
+    title: d.title,
+    provider: d.provider,
+    date: d.date,
+    end_date: d.end_date,
+    time: d.time,
+    origin: d.origin,
+    destination: d.destination,
+    number: d.number,
+    seat: d.seat,
+    reference: d.reference,
+    passenger: d.passenger,
+    details: d.details,
+    notes: null,
+  };
+}
+
+/** Suma un nombre real ("SANTIAGO PEREZ") a los nombres en pasajes de una persona, separados por ";". */
+export function withDocName(current: string | null | undefined, name: string): string {
+  const names = (current ?? '')
+    .split(';')
+    .map((n) => n.trim())
+    .filter(Boolean);
+  const clean = name.trim().toUpperCase();
+  if (!names.some((n) => nameTokens(n).join(' ') === nameTokens(clean).join(' '))) names.push(clean);
+  return names.join('; ');
 }

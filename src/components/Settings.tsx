@@ -121,7 +121,8 @@ function PeopleSection() {
         <h3>Personas</h3>
         <p className="hint">
           Cada uno entra con su email. Si tu amigo crea su cuenta con el email que figura acá, ve y edita este mismo
-          viaje. El nombre en pasajes (apellido y nombre como en el pasaporte) sirve para saber de quién es cada pase.
+          viaje. El nombre en pasajes (como en el pasaporte: “PEREZ SANTIAGO”) sirve para saber de quién es cada pase
+          aunque acá usen apodos; si aparece escrito de varias formas, separalas con “;”.
         </p>
       </div>
       {ctx.people.map((p, i) => (
@@ -168,7 +169,11 @@ function PersonRow({ person, index }: { person: Person; index: 0 | 1 }) {
       </label>
       <label className="field">
         <span className="label">Nombre en pasajes</span>
-        <input value={docName} onChange={(e) => setDocName(e.target.value)} placeholder="PEREZ SANTIAGO" />
+        <input
+          value={docName}
+          onChange={(e) => setDocName(e.target.value)}
+          placeholder="PEREZ SANTIAGO; SANTIAGO M PEREZ"
+        />
       </label>
       <div>
         <button disabled={!dirty || busy}>Guardar</button>

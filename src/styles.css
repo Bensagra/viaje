@@ -1225,3 +1225,23 @@ dl.details dd {
   border: 1px solid var(--border);
   border-radius: 8px;
 }
+
+.pass-route.places {
+  font-size: 19px;
+  letter-spacing: 0;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  line-height: 1.2;
+}
+
+.pass-route.places.big {
+  font-size: 23px;
+}
+
+.pass-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 14px;
+  font-weight: 500;
+  opacity: 0.92;
+}
