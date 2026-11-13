@@ -3,7 +3,7 @@
  * a cada uno, verificación por tarjeta y el balance final entre los dos.
  */
 import { METHOD_LABEL } from './constants';
-import { addDays, daysInclusive } from './format';
+import { addDays, daysInclusive, todayISO } from './format';
 import type { Card, Expense, Person, Trip, TripData } from './types';
 
 export interface Ctx {
@@ -14,6 +14,22 @@ export interface Ctx {
 }
 
 export type Pair = [number, number];
+
+export type Phase = 'pre' | 'trip' | 'post';
+
+/** En qué momento cae un gasto respecto de las fechas del viaje (sin fecha de ida, todo es viaje). */
+export function phaseOf(date: string, trip: Pick<Trip, 'start_date' | 'end_date'>): Phase {
+  if (trip.start_date && date < trip.start_date) return 'pre';
+  if (trip.end_date && date > trip.end_date) return 'post';
+  return 'trip';
+}
+
+/** Días de viaje transcurridos hasta `today` (la ida cuenta); 0 si todavía no empezó o no hay fecha de ida. */
+export function tripDaysElapsed(trip: Pick<Trip, 'start_date' | 'end_date'>, today: string): number {
+  if (!trip.start_date || today < trip.start_date) return 0;
+  const end = trip.end_date && trip.end_date < today ? trip.end_date : today;
+  return daysInclusive(trip.start_date, end);
+}
 
 export function makeCtx(data: Pick<TripData, 'trip' | 'people' | 'cards' | 'rates'>): Ctx {
   return {
@@ -145,9 +161,22 @@ export interface MethodRow {
   count: number;
 }
 
+export interface PhaseTotals {
+  total: number;
+  count: number;
+}
+
 export interface Summary {
   total: number;
   count: number;
+  /** Gastos anteriores a la ida (pasajes, reservas): no entran en el promedio por día. */
+  preTrip: PhaseTotals;
+  /** Gastos desde la ida (sin fecha de ida, todos los gastos). */
+  trip: PhaseTotals;
+  /** Días de viaje transcurridos; sin fechas cargadas, los días que abarcan los gastos. */
+  days: number;
+  /** Promedio por día de viaje; null si el viaje todavía no empezó. */
+  perDay: number | null;
   persons: [PersonTotals, PersonTotals];
   /** Saldo de la persona 1 en moneda base: > 0 la 2 le debe; < 0 le debe a la 2. */
   balance: number;
@@ -193,8 +222,10 @@ function methodOf(e: Expense, ctx: Ctx, payer: 0 | 1): Pick<MethodRow, 'key' | '
   return { key: `${e.payment_method}:${owner.id}`, label: METHOD_LABEL[e.payment_method], owner };
 }
 
-export function summarize(expenses: Expense[], ctx: Ctx): Summary {
+export function summarize(expenses: Expense[], ctx: Ctx, today: string = todayISO()): Summary {
   const persons: [PersonTotals, PersonTotals] = [emptyTotals(), emptyTotals()];
+  const preTrip: PhaseTotals = { total: 0, count: 0 };
+  const tripTotals: PhaseTotals = { total: 0, count: 0 };
   const categories = new Map<string, GroupRow>();
   const days = new Map<string, GroupRow>();
   const currencies = new Map<string, CurrencyRow>();
@@ -260,12 +291,20 @@ export function summarize(expenses: Expense[], ctx: Ctx): Summary {
       payer,
       share,
     );
-    addToRow(
-      getOrCreate(days, e.date, () => emptyRow(e.date)),
-      base,
-      payer,
-      share,
-    );
+    // Lo anterior a la ida son pasajes y reservas: cuenta en el total, pero no es "gasto del día".
+    if (phaseOf(e.date, ctx.trip) === 'pre') {
+      preTrip.total += base;
+      preTrip.count += 1;
+    } else {
+      tripTotals.total += base;
+      tripTotals.count += 1;
+      addToRow(
+        getOrCreate(days, e.date, () => emptyRow(e.date)),
+        base,
+        payer,
+        share,
+      );
+    }
     const method = methodOf(e, ctx, payer);
     const methodRow = getOrCreate(methods, method.key, () => ({ ...method, total: 0, count: 0 }));
     methodRow.total += base;
@@ -275,12 +314,20 @@ export function summarize(expenses: Expense[], ctx: Ctx): Summary {
   for (const p of persons) p.net = p.paid - p.consumed + p.sent - p.received;
   for (const c of currencies.values()) c.net = c.paid[0] - c.consumed[0] + c.sent[0] - c.received[0];
 
-  // Días corridos (con los días sin gastos en 0) si el rango es razonable.
+  // Días corridos del viaje (con los días sin gastos en 0) si el rango es razonable: desde la ida hasta hoy,
+  // o hasta el último gasto si hay alguno cargado más adelante. Sin fecha de ida, los días que abarcan los gastos.
   const dayKeys = [...days.keys()].sort();
+  const elapsed = tripDaysElapsed(ctx.trip, today);
+  const start = ctx.trip.start_date;
+  const first = start ?? dayKeys[0];
+  const lastExpense = dayKeys[dayKeys.length - 1];
+  const untilToday = start && elapsed ? addDays(start, elapsed - 1) : undefined;
+  const last = [lastExpense, untilToday]
+    .filter((d): d is string => Boolean(d))
+    .sort()
+    .pop();
   const byDay: DayRow[] = [];
-  if (dayKeys.length) {
-    const first = dayKeys[0];
-    const last = dayKeys[dayKeys.length - 1];
+  if (first && last && first <= last) {
     const keys = daysInclusive(first, last) <= 62 ? enumerateDays(first, last) : dayKeys;
     let cumulative = 0;
     for (const key of keys) {
@@ -289,10 +336,15 @@ export function summarize(expenses: Expense[], ctx: Ctx): Summary {
       byDay.push({ ...row, cumulative });
     }
   }
+  const tripDays = start ? elapsed : dayKeys.length ? daysInclusive(dayKeys[0], lastExpense) : 0;
 
   return {
     total,
     count,
+    preTrip,
+    trip: tripTotals,
+    days: tripDays,
+    perDay: tripDays ? tripTotals.total / tripDays : null,
     persons,
     balance: persons[0].net,
     byCategory: [...categories.values()].sort((a, b) => b.total - a.total),

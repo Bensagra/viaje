@@ -3,6 +3,7 @@ import { createTrip } from '../lib/api';
 import { CURRENCIES } from '../lib/constants';
 import { parseAmount } from '../lib/format';
 import { errorMessage } from '../lib/receipts';
+import { Brand } from './Login';
 
 export function CreateTrip({
   email,
@@ -59,7 +60,7 @@ export function CreateTrip({
   return (
     <div className="center">
       <form className="card narrow stack" onSubmit={submit} style={{ maxWidth: 560 }}>
-        <h2>Nuevo viaje</h2>
+        <Brand subtitle="Nuevo viaje" />
         <label className="field">
           <span className="label">Nombre del viaje</span>
           <input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej: Europa 2026" />

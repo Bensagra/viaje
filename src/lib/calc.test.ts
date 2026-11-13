@@ -116,6 +116,59 @@ describe('summarize', () => {
   });
 });
 
+describe('pre-viaje', () => {
+  const dated = makeCtx({
+    trip: { ...ctx.trip, start_date: '2027-01-15', end_date: '2027-02-04' },
+    people: [juan, pedro],
+    cards: [],
+    rates: [],
+  });
+  const pasaje = exp({ date: '2026-11-02', amount: 300, category: 'Transporte' });
+  const hotel = exp({ date: '2026-11-10', amount: 200, category: 'Alojamiento' });
+  const cena = exp({ date: '2027-01-15', amount: 40 });
+  const museo = exp({ date: '2027-01-17', amount: 20, paid_by: 'p2' });
+
+  it('antes de la ida todo es pre-viaje: cuenta en el total pero no hay promedio por día', () => {
+    const s = summarize([pasaje, hotel], dated, '2026-11-13');
+    expect(s.total).toBe(500);
+    expect(s.preTrip).toEqual({ total: 500, count: 2 });
+    expect(s.trip).toEqual({ total: 0, count: 0 });
+    expect(s.days).toBe(0);
+    expect(s.perDay).toBeNull();
+    expect(s.byDay).toEqual([]);
+  });
+
+  it('durante el viaje el promedio usa solo los gastos y los días desde la ida', () => {
+    const s = summarize([pasaje, hotel, cena, museo], dated, '2027-01-18');
+    expect(s.total).toBe(560);
+    expect(s.preTrip.total).toBe(500);
+    expect(s.trip).toEqual({ total: 60, count: 2 });
+    expect(s.days).toBe(4); // 15, 16, 17 y 18
+    expect(s.perDay).toBe(15);
+    expect(s.byDay.map((d) => [d.key, d.total])).toEqual([
+      ['2027-01-15', 40],
+      ['2027-01-16', 0],
+      ['2027-01-17', 20],
+      ['2027-01-18', 0],
+    ]);
+  });
+
+  it('después de la vuelta los días son los del viaje completo', () => {
+    const s = summarize([cena, museo], dated, '2027-03-01');
+    expect(s.days).toBe(21);
+    expect(s.perDay).toBeCloseTo(60 / 21);
+    expect(s.byDay).toHaveLength(21);
+  });
+
+  it('sin fecha de ida, todo es viaje y los días son los que abarcan los gastos', () => {
+    const s = summarize([pasaje, hotel], ctx, '2026-11-13');
+    expect(s.preTrip.count).toBe(0);
+    expect(s.trip.total).toBe(500);
+    expect(s.days).toBe(9);
+    expect(s.perDay).toBeCloseTo(500 / 9);
+  });
+});
+
 describe('verify', () => {
   it('detecta tarjeta propia, ajena y desconocida', () => {
     const base = { kind: 'expense', payment_method: 'card' } as const;

@@ -5,7 +5,8 @@ import * as api from '../lib/api';
 import { fieldsFromDraft, matchPerson, titleFor, withDocName, type DocDraft } from '../lib/travelParser';
 import type { DocFields } from '../lib/types';
 import { useTrip } from '../state';
-import { Modal } from './ui';
+import { Icon } from './Icon';
+import { Modal, OwnerTab } from './ui';
 import { DocFieldsForm, KIND_META } from './DocFields';
 
 interface Item {
@@ -198,7 +199,7 @@ export function DocImport({ onClose }: { onClose: () => void }) {
       <div className="stack">
         <div className="dropzone">
           <label className={`btn primary${busy ? ' disabled' : ''}`}>
-            Elegir PDFs o capturas
+            <Icon name="upload" /> Elegir PDFs o capturas
             <input
               className="visually-hidden"
               type="file"
@@ -217,9 +218,15 @@ export function DocImport({ onClose }: { onClose: () => void }) {
           </span>
         </div>
 
-        {status && <div className="notice">{status}</div>}
+        {status && (
+          <div className="notice">
+            <Icon name="hourglass" />
+            <span className="grow">{status}</span>
+          </div>
+        )}
         {info.find((i) => i.aiError) && (
           <div className="notice warning">
+            <Icon name="alert" />
             <span className="grow">
               No se pudo leer con IA (
               {info.find((i) => i.aiError)!.aiError!.replace(/^Lectura con IA no disponible: /, '')}), así que se usó la
@@ -230,7 +237,8 @@ export function DocImport({ onClose }: { onClose: () => void }) {
         )}
         {errors.map((e, i) => (
           <div key={i} className="notice critical">
-            {e}
+            <Icon name="alert" />
+            <span className="grow">{e}</span>
           </div>
         ))}
 
@@ -245,7 +253,9 @@ export function DocImport({ onClose }: { onClose: () => void }) {
                   · {file.pages.length} pág. → {fileItems.length} documento{fileItems.length === 1 ? '' : 's'}
                 </span>{' '}
                 {info[fileIndex]?.via === 'ai' ? (
-                  <span className="badge good">✨ Leído con IA</span>
+                  <span className="badge ai">
+                    <Icon name="bolt" /> Leído con IA
+                  </span>
                 ) : (
                   <span className="badge muted">Lectura básica</span>
                 )}
@@ -258,7 +268,8 @@ export function DocImport({ onClose }: { onClose: () => void }) {
                       ?.codes.find((c) => c.text === item.draft.code!.text)
                   : null;
                 return (
-                  <div key={item.key} className={`review-card${item.include ? '' : ' excluded'}`}>
+                  <div key={item.key} className={`tag review-card${item.include ? '' : ' excluded'}`}>
+                    <OwnerTab personId={item.fields.person_id ?? null} shared={!item.fields.person_id} />
                     <div className="review-media">
                       {code ? (
                         <img className="review-code" src={code.image} alt={code.format} />
@@ -266,7 +277,7 @@ export function DocImport({ onClose }: { onClose: () => void }) {
                         pages[0] && <img className="review-thumb" src={pages[0].thumb} alt="" />
                       )}
                       <span className="hint">
-                        {KIND_META[item.fields.kind ?? 'other'].icon} pág.{' '}
+                        <Icon name={KIND_META[item.fields.kind ?? 'other'].icon} size={14} /> pág.{' '}
                         {item.draft.pages.map((p) => p + 1).join(', ')}
                         {code ? ` · ${code.format}` : ' · sin código'}
                       </span>
@@ -274,7 +285,7 @@ export function DocImport({ onClose }: { onClose: () => void }) {
                     <div className="stack-sm">
                       {item.draft.warnings.map((w) => (
                         <span key={w} className="badge warning">
-                          ⚠ {w}
+                          <Icon name="alert" /> {w}
                         </span>
                       ))}
                       <DocFieldsForm
@@ -313,7 +324,7 @@ export function DocImport({ onClose }: { onClose: () => void }) {
         {items.length > 0 && (
           <div className="actions">
             <button className="primary" onClick={saveAll} disabled={saving || busy || !included.length}>
-              Guardar {included.length}
+              <Icon name="check" /> Guardar {included.length}
             </button>
             <span className="hint">
               {perPerson.join(' · ')}

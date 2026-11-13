@@ -7,6 +7,7 @@ import { errorMessage, getReadMode, setReadMode, type ReadMode } from '../lib/re
 import type { Person } from '../lib/types';
 import { useTrip } from '../state';
 import { supabase } from '../supabase';
+import { Icon } from './Icon';
 import { Swatch } from './ui';
 
 export function SettingsView() {
@@ -245,7 +246,8 @@ function CardsSection() {
       </div>
       {summary.unknownCards.length > 0 && (
         <div className="notice warning">
-          <span className="grow">? Aparecen en tickets pero no están registradas: </span>
+          <Icon name="help" />
+          <span className="grow">Aparecen en tickets pero no están registradas: </span>
           {summary.unknownCards.map((c) => (
             <button key={c} type="button" className="small" onClick={() => setLast4(c)}>
               ****{c}
@@ -280,7 +282,7 @@ function CardsSection() {
         </label>
         <div>
           <button className="primary" disabled={busy}>
-            Agregar tarjeta
+            <Icon name="plus" /> Agregar tarjeta
           </button>
         </div>
       </form>
@@ -429,7 +431,7 @@ function RateRow({
     <tr>
       <td>
         <strong>{currency}</strong>
-        {rate == null && <span className="sub">⚠ sin cotización</span>}
+        {rate == null && <span className="sub">sin cotización</span>}
       </td>
       <td>
         <input
@@ -563,7 +565,9 @@ function TripsSection() {
             ))}
           </select>
         )}
-        <button onClick={() => switchTrip(null)}>+ Nuevo viaje</button>
+        <button onClick={() => switchTrip(null)}>
+          <Icon name="plus" /> Nuevo viaje
+        </button>
         {isOwner && (
           <button
             className="danger"
@@ -585,7 +589,9 @@ function TripsSection() {
       </div>
       <div className="row spread">
         <span className="hint">Sesión: {userEmail}</span>
-        <button onClick={() => void supabase.auth.signOut()}>Cerrar sesión</button>
+        <button onClick={() => void supabase.auth.signOut()}>
+          <Icon name="logout" /> Cerrar sesión
+        </button>
       </div>
     </section>
   );

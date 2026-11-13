@@ -16,6 +16,7 @@ import {
 import { errorMessage, extractionPatch, readReceipt, rereadAttachment, uploadAttachment } from '../lib/receipts';
 import type { Attachment, Expense, ExpenseFields, ExpenseKind, Extraction, PaymentMethod, Person } from '../lib/types';
 import { useTrip, type EditorTarget } from '../state';
+import { Icon } from './Icon';
 import { FilePreview, Modal, Swatch, useSignedUrls } from './ui';
 
 type SplitMode = 'equal' | 'p1' | 'p2' | 'custom';
@@ -548,7 +549,7 @@ export function ExpenseEditor({ target, onClose }: { target: EditorTarget; onClo
             <span className="label hint">Comprobante</span>
             <div className="row">
               <label className="btn small">
-                📷 Foto
+                <Icon name="camera" size={16} /> Foto
                 <input
                   className="visually-hidden"
                   type="file"
@@ -561,7 +562,7 @@ export function ExpenseEditor({ target, onClose }: { target: EditorTarget; onClo
                 />
               </label>
               <label className="btn small">
-                Adjuntar archivo
+                <Icon name="paperclip" size={16} /> Adjuntar archivo
                 <input
                   className="visually-hidden"
                   type="file"
@@ -577,12 +578,22 @@ export function ExpenseEditor({ target, onClose }: { target: EditorTarget; onClo
             </div>
           </div>
 
-          {busy && <div className="notice">{busy}</div>}
-          {error && <div className="notice critical">{error}</div>}
+          {busy && (
+            <div className="notice">
+              <Icon name="hourglass" />
+              <span className="grow">{busy}</span>
+            </div>
+          )}
+          {error && (
+            <div className="notice critical">
+              <Icon name="alert" />
+              <span className="grow">{error}</span>
+            </div>
+          )}
 
           <div className="actions">
             <button className="primary" type="submit" disabled={Boolean(busy)}>
-              {expense?.status === 'draft' ? 'Confirmar' : 'Guardar'}
+              <Icon name="check" /> {expense?.status === 'draft' ? 'Confirmar' : 'Guardar'}
             </button>
             {expense?.status === 'draft' && otherDrafts.length > 0 && (
               <button type="button" onClick={() => save('confirmed', true)} disabled={Boolean(busy)}>
@@ -597,7 +608,7 @@ export function ExpenseEditor({ target, onClose }: { target: EditorTarget; onClo
             <span className="right row">
               {expense && (
                 <button type="button" className="danger" onClick={remove} disabled={Boolean(busy)}>
-                  Eliminar
+                  <Icon name="trash" /> Eliminar
                 </button>
               )}
               <button type="button" onClick={onClose}>
@@ -662,15 +673,16 @@ function CardCheck({
     case 'ok':
       return (
         <span className="badge good">
-          ✓ Tarjeta de {status.owner.name}
+          <Icon name="check" /> Tarjeta de {status.owner.name}
           {status.card.label ? ` (${status.card.label})` : ''}
         </span>
       );
     case 'mismatch':
       return (
         <div className="notice critical">
+          <Icon name="alert" />
           <span className="grow">
-            ⚠ La ****{status.card.last4} es de {status.owner.name}, pero marcaste que pagó {payer?.name}.
+            La ****{status.card.last4} es de {status.owner.name}, pero marcaste que pagó {payer?.name}.
           </span>
           <button type="button" className="small" onClick={() => onUseOwner(status.owner)}>
             Pagó {status.owner.name}
@@ -680,7 +692,8 @@ function CardCheck({
     case 'unknown':
       return (
         <div className="notice warning">
-          <span className="grow">? La ****{status.last4} no está registrada. ¿De quién es?</span>
+          <Icon name="help" />
+          <span className="grow">La ****{status.last4} no está registrada. ¿De quién es?</span>
           {people.map((p) => (
             <button key={p.id} type="button" className="small" onClick={() => onAssign(p)}>
               {p.name}

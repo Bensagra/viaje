@@ -1,24 +1,23 @@
 import type { ReactNode } from 'react';
-import { debtOf, type Summary } from '../lib/calc';
+import { debtOf } from '../lib/calc';
 import { daysInclusive, fmtDay, fmtMoney, fmtPct, fmtRate, todayISO } from '../lib/format';
 import type { Trip } from '../lib/types';
 import { useTrip } from '../state';
-import { Legend, SplitBar, Swatch } from './ui';
-
-function elapsedDays(trip: Trip, s: Summary): number {
-  const today = todayISO();
-  if (trip.start_date) {
-    const end = trip.end_date && trip.end_date < today ? trip.end_date : today;
-    return end >= trip.start_date ? daysInclusive(trip.start_date, end) : 0;
-  }
-  return s.byDay.length ? daysInclusive(s.byDay[0].key, s.byDay[s.byDay.length - 1].key) : 0;
-}
+import { Icon } from './Icon';
+import { Barcode, ExpenseTagRow, Legend, OwnerTab, SplitBar, Swatch } from './ui';
 
 function remainingDays(trip: Trip): number {
   const today = todayISO();
   if (!trip.end_date || trip.end_date < today) return 0;
   const from = trip.start_date && trip.start_date > today ? trip.start_date : today;
   return daysInclusive(from, trip.end_date);
+}
+
+/** Días que faltan para la ida (null si no hay fecha o ya empezó). */
+function startsIn(trip: Trip): number | null {
+  const today = todayISO();
+  if (!trip.start_date || trip.start_date <= today) return null;
+  return daysInclusive(today, trip.start_date) - 1;
 }
 
 export function SummaryView() {
@@ -30,14 +29,19 @@ export function SummaryView() {
   const money = (v: number) => fmtMoney(v, base);
   const signed = (v: number) => (Math.abs(v) < 0.005 ? money(0) : `${v > 0 ? '+' : '−'}${money(Math.abs(v))}`);
   const debt = debtOf(s.balance, ctx);
+  const debtorIndex = debt ? (debt.from.id === p1.id ? 0 : 1) : -1;
   const paidTotal = a.paid + b.paid;
   const paidDiff = Math.abs(a.paid - b.paid);
   const morePayer = a.paid > b.paid ? p1 : p2;
   const lessPayer = morePayer === p1 ? p2 : p1;
-  const days = elapsedDays(trip, s);
   const left = remainingDays(trip);
+  const soon = startsIn(trip);
   const maxCategory = Math.max(0, ...s.byCategory.map((c) => c.total));
   const maxDay = Math.max(0, ...s.byDay.map((d) => d.total));
+  const latest = data.expenses
+    .filter((e) => e.status === 'confirmed')
+    .sort((x, y) => y.date.localeCompare(x.date) || y.created_at.localeCompare(x.created_at))
+    .slice(0, 5);
 
   const comparison: [string, ReactNode, ReactNode, ReactNode][] = [
     [
@@ -65,90 +69,132 @@ export function SummaryView() {
     ['Promedio por gasto', a.count ? money(a.paid / a.count) : '—', b.count ? money(b.paid / b.count) : '—', ''],
   ];
 
+  const perDayHint = s.days
+    ? `${s.days} día${s.days === 1 ? '' : 's'} de viaje · sin lo pre-viaje`
+    : soon != null
+      ? `el viaje empieza en ${soon} día${soon === 1 ? '' : 's'}`
+      : trip.start_date
+        ? 'todavía no hay gastos del viaje'
+        : 'cargá las fechas en Config';
+
   return (
     <div className="stack">
-      <section className="card hero">
-        <div>
-          <div className="hero-label">{debt ? `${debt.from.name} le debe a ${debt.to.name}` : 'Están a mano'}</div>
-          <div className="hero-figure">{debt ? money(debt.amount) : '✓ ' + money(0)}</div>
-        </div>
-        {paidTotal > 0 && (
-          <p className="hint">
-            {paidDiff >= 0.005
-              ? `${morePayer.name} puso ${money(paidDiff)} más que ${lessPayer.name} en gastos (${fmtPct(Math.max(a.paid, b.paid) / paidTotal)} del total).`
-              : 'Los dos pusieron lo mismo en gastos.'}
+      <section className="summary-top">
+        <div className={`tag claim land ${debt ? `stock-p${debtorIndex + 1}` : 'stock-neutral'}`}>
+          <OwnerTab personId={debt?.from.id ?? null} shared={!debt} />
+          <div className="claim-who">{debt ? `${debt.from.name} le debe a ${debt.to.name}` : 'Están a mano'}</div>
+          <div className="claim-amount">{money(debt?.amount ?? 0)}</div>
+          <p className="claim-note">
+            {paidTotal > 0
+              ? paidDiff >= 0.005
+                ? `${morePayer.name} puso ${money(paidDiff)} más que ${lessPayer.name} en gastos (${fmtPct(Math.max(a.paid, b.paid) / paidTotal)} del total).`
+                : 'Los dos pusieron lo mismo en gastos.'
+              : 'Todavía no hay gastos confirmados.'}
+            {s.drafts.length > 0 &&
+              ` Hay ${s.drafts.length} pendiente${s.drafts.length === 1 ? ' que no cuenta' : 's que no cuentan'}.`}
           </p>
-        )}
-        <div className="row">
-          <button className="primary" onClick={() => goTo('saldar')}>
-            Registrar un pago
-          </button>
-          <button onClick={() => goTo('cargar')}>Cargar ticket o gasto</button>
+          <Barcode value={`${trip.id}:${Math.round(s.balance * 100)}`} />
+          <div className="claim-actions">
+            <button className="primary" onClick={() => goTo('saldar')}>
+              <Icon name="swap" /> Registrar pago
+            </button>
+            <button onClick={() => goTo('cargar')}>
+              <Icon name="camera" /> Cargar ticket
+            </button>
+          </div>
         </div>
+
+        <dl className="cells wrap">
+          <div className="cell">
+            <dt>Gasto total</dt>
+            <dd>{money(s.total)}</dd>
+            <span className="hint">
+              {s.count} gasto{s.count === 1 ? '' : 's'} confirmado{s.count === 1 ? '' : 's'}
+            </span>
+          </div>
+          <div className="cell">
+            <dt>Por día de viaje</dt>
+            <dd>{s.perDay != null ? money(s.perDay) : '—'}</dd>
+            <span className="hint">{perDayHint}</span>
+          </div>
+          {s.preTrip.count > 0 && (
+            <div className="cell">
+              <dt>Pre-viaje</dt>
+              <dd>{money(s.preTrip.total)}</dd>
+              <span className="hint">
+                {s.preTrip.count} gasto{s.preTrip.count === 1 ? '' : 's'} antes de la ida (pasajes, reservas)
+              </span>
+            </div>
+          )}
+          {trip.budget ? (
+            <BudgetCell budget={trip.budget} spent={s.total} daysLeft={left} />
+          ) : (
+            <div className="cell">
+              <dt>Por persona</dt>
+              <dd>{money((a.consumed + b.consumed) / 2)}</dd>
+              <span className="hint">lo que le corresponde a cada uno, en promedio</span>
+            </div>
+          )}
+        </dl>
       </section>
 
       <Alerts />
 
-      <section className="kpis">
-        <div className="card tile">
-          <div className="label">Gasto total</div>
-          <div className="value num">{money(s.total)}</div>
-          <div className="hint">
-            {s.count} gasto{s.count === 1 ? '' : 's'} confirmados
+      {latest.length > 0 && (
+        <section className="card">
+          <div className="section-head">
+            <h3>Últimos gastos</h3>
+            <button className="link" onClick={() => goTo('gastos')}>
+              Ver todos ({data.expenses.length})
+            </button>
           </div>
-        </div>
-        <div className="card tile">
-          <div className="label">Promedio por día</div>
-          <div className="value num">{days ? money(s.total / days) : '—'}</div>
-          <div className="hint">
-            {days ? `${days} día${days === 1 ? '' : 's'} de viaje` : 'Cargá las fechas en Config'}
+          <div className="tagrows">
+            {latest.map((e) => (
+              <ExpenseTagRow key={e.id} expense={e} onOpen={() => openEditor({ id: e.id })} />
+            ))}
           </div>
-        </div>
-        <div className="card tile">
-          <div className="label">Por persona (su parte)</div>
-          <div className="value num">{money((a.consumed + b.consumed) / 2)}</div>
-          <div className="hint">promedio de lo que le corresponde a cada uno</div>
-        </div>
-        {trip.budget ? <BudgetTile budget={trip.budget} spent={s.total} daysLeft={left} /> : null}
-      </section>
+        </section>
+      )}
 
-      <section className="card">
-        <h3>Tabla comparativa</h3>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th />
-                <th className="num">
-                  <span className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
-                    <Swatch index={0} /> {p1.name}
-                  </span>
-                </th>
-                <th className="num">
-                  <span className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
-                    <Swatch index={1} /> {p2.name}
-                  </span>
-                </th>
-                <th>Diferencia</th>
-              </tr>
-            </thead>
-            <tbody>
-              {comparison.map(([label, v1, v2, diff]) => (
-                <tr key={label}>
-                  <td>{label}</td>
-                  <td className="num">{v1}</td>
-                  <td className="num">{v2}</td>
-                  <td style={{ minWidth: 120 }}>{diff}</td>
+      {s.count > 0 && (
+        <section className="card">
+          <h3>Quién puso qué</h3>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th />
+                  <th className="num">
+                    <span className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
+                      <Swatch index={0} /> {p1.name}
+                    </span>
+                  </th>
+                  <th className="num">
+                    <span className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
+                      <Swatch index={1} /> {p2.name}
+                    </span>
+                  </th>
+                  <th>Diferencia</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <p className="hint" style={{ marginTop: 8 }}>
-          “Le corresponde” es la parte de cada gasto que es de esa persona según la división (50/50, solo uno, etc.).
-          Saldo = pagó − le corresponde + pagos enviados − recibidos.
-        </p>
-      </section>
+              </thead>
+              <tbody>
+                {comparison.map(([label, v1, v2, diff]) => (
+                  <tr key={label}>
+                    <td>{label}</td>
+                    <td className="num">{v1}</td>
+                    <td className="num">{v2}</td>
+                    <td style={{ minWidth: 120 }}>{diff}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="hint" style={{ marginTop: 10 }}>
+            “Le corresponde” es la parte de cada gasto que es de esa persona según la división (50/50, solo uno, etc.).
+            Saldo = pagó − le corresponde + pagos enviados − recibidos.
+          </p>
+        </section>
+      )}
 
       {s.byCategory.length > 0 && (
         <section className="card">
@@ -200,7 +246,7 @@ export function SummaryView() {
 
       {s.byDay.length > 0 && (
         <section className="card">
-          <h3>Por día</h3>
+          <h3>Por día de viaje</h3>
           <Legend />
           <div className="table-wrap">
             <table>
@@ -234,6 +280,11 @@ export function SummaryView() {
               </tbody>
             </table>
           </div>
+          {s.preTrip.count > 0 && (
+            <p className="hint" style={{ marginTop: 10 }}>
+              Lo pre-viaje ({money(s.preTrip.total)}) no entra acá: son pasajes y reservas pagados antes de la ida.
+            </p>
+          )}
         </section>
       )}
 
@@ -264,15 +315,21 @@ export function SummaryView() {
                       <td className="num hide-sm">{fmtMoney(c.paid[0], c.key)}</td>
                       <td className="num hide-sm">{fmtMoney(c.paid[1], c.key)}</td>
                       <td>{d ? `${d.from.name} debe ${fmtMoney(d.amount, c.key)}` : 'A mano'}</td>
-                      <td className="num hide-sm">{rate ? fmtRate(rate) : '⚠ falta'}</td>
-                      <td className="num">{c.totalBase == null ? '⚠ falta cotización' : money(c.totalBase)}</td>
+                      <td className="num hide-sm">{rate ? fmtRate(rate) : 'falta'}</td>
+                      <td className="num">
+                        {c.totalBase == null ? (
+                          <span className="badge warning">falta cotización</span>
+                        ) : (
+                          money(c.totalBase)
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
-          <p className="hint" style={{ marginTop: 8 }}>
+          <p className="hint" style={{ marginTop: 10 }}>
             El saldo por moneda no convierte nada: sirve si prefieren saldar cada moneda por separado.
           </p>
         </section>
@@ -295,7 +352,15 @@ export function SummaryView() {
                 {s.byMethod.map((m) => (
                   <tr key={m.key}>
                     <td>{m.label}</td>
-                    <td>{m.owner ? m.owner.name : <span className="badge warning">? no registrada</span>}</td>
+                    <td>
+                      {m.owner ? (
+                        m.owner.name
+                      ) : (
+                        <span className="badge warning">
+                          <Icon name="help" /> no registrada
+                        </span>
+                      )}
+                    </td>
                     <td className="num">{m.count}</td>
                     <td className="num">{money(m.total)}</td>
                   </tr>
@@ -303,7 +368,7 @@ export function SummaryView() {
               </tbody>
             </table>
           </div>
-          <p className="hint" style={{ marginTop: 8 }}>
+          <p className="hint" style={{ marginTop: 10 }}>
             Útil para comparar contra el resumen de cada tarjeta.
           </p>
         </section>
@@ -315,9 +380,11 @@ export function SummaryView() {
           <p className="hint">Subí una foto de un ticket o cargá un gasto a mano para empezar.</p>
           <div className="row">
             <button className="primary" onClick={() => goTo('cargar')}>
-              Cargar el primero
+              <Icon name="camera" /> Cargar el primero
             </button>
-            <button onClick={() => openEditor({ seed: {} })}>Gasto manual</button>
+            <button onClick={() => openEditor({ seed: {} })}>
+              <Icon name="plus" /> Gasto manual
+            </button>
           </div>
         </section>
       )}
@@ -325,16 +392,18 @@ export function SummaryView() {
   );
 }
 
-function BudgetTile({ budget, spent, daysLeft }: { budget: number; spent: number; daysLeft: number }) {
+function BudgetCell({ budget, spent, daysLeft }: { budget: number; spent: number; daysLeft: number }) {
   const { data } = useTrip();
   const base = data.trip.base_currency;
   const ratio = spent / budget;
   const level = ratio > 1 ? 'critical' : ratio > 0.85 ? 'warning' : '';
   const remaining = budget - spent;
   return (
-    <div className="card tile">
-      <div className="label">Presupuesto</div>
-      <div className="value num">{fmtPct(ratio)}</div>
+    <div className="cell">
+      <dt>Presupuesto</dt>
+      <dd className="small">
+        {fmtPct(ratio)} de {fmtMoney(budget, base)}
+      </dd>
       <div
         className={`meter ${level}`}
         role="meter"
@@ -345,7 +414,7 @@ function BudgetTile({ budget, spent, daysLeft }: { budget: number; spent: number
       >
         <span style={{ width: `${Math.min(100, ratio * 100)}%` }} />
       </div>
-      <div className="hint" style={{ marginTop: 6 }}>
+      <span className="hint">
         {remaining >= 0 ? (
           <>
             Quedan {fmtMoney(remaining, base)}
@@ -353,9 +422,9 @@ function BudgetTile({ budget, spent, daysLeft }: { budget: number; spent: number
               ` · ${fmtMoney(remaining / daysLeft, base)}/día por ${daysLeft} día${daysLeft === 1 ? '' : 's'}`}
           </>
         ) : (
-          <>⚠ Excedido por {fmtMoney(-remaining, base)}</>
+          <>Excedido por {fmtMoney(-remaining, base)}</>
         )}
-      </div>
+      </span>
     </div>
   );
 }
@@ -366,9 +435,10 @@ function Alerts() {
   if (s.drafts.length) {
     items.push(
       <div key="drafts" className="notice warning">
+        <Icon name="hourglass" />
         <span className="grow">
-          ⏳ {s.drafts.length} comprobante{s.drafts.length === 1 ? '' : 's'} pendiente{s.drafts.length === 1 ? '' : 's'}{' '}
-          de revisar (todavía no cuentan en el balance).
+          {s.drafts.length} comprobante{s.drafts.length === 1 ? '' : 's'} pendiente{s.drafts.length === 1 ? '' : 's'} de
+          revisar: todavía no cuentan en el saldo.
         </span>
         <button className="small" onClick={() => openEditor({ id: s.drafts[0].id })}>
           Revisar
@@ -380,9 +450,10 @@ function Alerts() {
     const currencies = [...new Set(s.missingRate.map((e) => e.currency))].join(', ');
     items.push(
       <div key="rates" className="notice warning">
+        <Icon name="alert" />
         <span className="grow">
-          ⚠ {s.missingRate.length} gasto{s.missingRate.length === 1 ? '' : 's'} en {currencies} sin cotización: no
-          entran en los totales en {data.trip.base_currency}.
+          {s.missingRate.length} gasto{s.missingRate.length === 1 ? '' : 's'} en {currencies} sin cotización: no entran
+          en los totales en {data.trip.base_currency}.
         </span>
         <button className="small" onClick={() => goTo('config')}>
           Cargar cotización
@@ -393,8 +464,9 @@ function Alerts() {
   if (s.mismatches.length) {
     items.push(
       <div key="mismatch" className="notice critical">
+        <Icon name="alert" />
         <span className="grow">
-          ⚠ {s.mismatches.length} gasto{s.mismatches.length === 1 ? '' : 's'} con una tarjeta que es de la otra persona.
+          {s.mismatches.length} gasto{s.mismatches.length === 1 ? '' : 's'} con una tarjeta que es de la otra persona.
         </span>
         <button className="small" onClick={() => goTo('gastos', 'mismatch')}>
           Ver
@@ -405,7 +477,8 @@ function Alerts() {
   if (s.unknownCards.length) {
     items.push(
       <div key="unknown" className="notice warning">
-        <span className="grow">? Tarjetas sin dueño: {s.unknownCards.map((c) => `****${c}`).join(', ')}.</span>
+        <Icon name="help" />
+        <span className="grow">Tarjetas sin dueño: {s.unknownCards.map((c) => `****${c}`).join(', ')}.</span>
         <button className="small" onClick={() => goTo('config')}>
           Asignar
         </button>
@@ -415,6 +488,7 @@ function Alerts() {
   if (!ctx.cards.length) {
     items.push(
       <div key="nocards" className="notice">
+        <Icon name="tag" />
         <span className="grow">
           Registrá los últimos 4 dígitos de las tarjetas de cada uno para que los tickets se asignen solos.
         </span>

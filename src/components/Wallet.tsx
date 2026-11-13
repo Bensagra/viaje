@@ -9,7 +9,8 @@ import type { DocFields, Person, TravelDoc } from '../lib/types';
 import { useTrip } from '../state';
 import { DocFieldsForm, KIND_META } from './DocFields';
 import { DocImport } from './DocImport';
-import { Modal, Swatch } from './ui';
+import { Icon } from './Icon';
+import { Modal, OwnerTab, Swatch } from './ui';
 
 interface Entry {
   doc: TravelDoc;
@@ -18,13 +19,13 @@ interface Entry {
   sortTime: string;
 }
 
-function dayLabel(day: string, today: string): string {
+/** "Hoy", "Mañana", "en 67 días"… (null si no hay nada que decir). */
+function relativeLabel(day: string, today: string): string | null {
   const diff = daysInclusive(today, day) - 1;
-  const base = fmtDay(day);
-  if (diff === 0) return `Hoy · ${base}`;
-  if (diff === 1) return `Mañana · ${base}`;
-  if (diff === -1) return `Ayer · ${base}`;
-  return diff > 1 ? `${base} · en ${diff} días` : base;
+  if (diff === 0) return 'Hoy';
+  if (diff === 1) return 'Mañana';
+  if (diff === -1) return 'Ayer';
+  return diff > 1 ? `en ${diff} días` : null;
 }
 
 function groupByDay(docs: TravelDoc[]) {
@@ -131,24 +132,33 @@ export function WalletView() {
     );
   }
 
-  const renderDay = ([day, entries]: [string, Entry[]]) => (
-    <section key={day} className="stack-sm">
-      <h3 className={`day-title${day === today ? ' today' : ''}`}>{dayLabel(day, today)}</h3>
-      {entries.map((e) => (
-        <PassCard
-          key={`${e.doc.id}-${e.role}`}
-          doc={e.doc}
-          role={e.role}
-          onOpen={(doc) => setOpen({ id: e.doc.id, doc })}
-        />
-      ))}
-    </section>
-  );
+  const renderDay = ([day, entries]: [string, Entry[]]) => {
+    const relative = relativeLabel(day, today);
+    return (
+      <section key={day} className="stack-sm">
+        <h3 className={`day-title${day === today ? ' today' : ''}`}>
+          <span>{fmtDay(day)}</span>
+          {relative && <span className="hint">{relative}</span>}
+        </h3>
+        <div className="day-passes">
+          {entries.map((e) => (
+            <PassCard
+              key={`${e.doc.id}-${e.role}`}
+              doc={e.doc}
+              role={e.role}
+              onOpen={(doc) => setOpen({ id: e.doc.id, doc })}
+            />
+          ))}
+        </div>
+      </section>
+    );
+  };
 
   return (
     <div className="stack">
       {data.documentsError && (
         <div className="notice critical">
+          <Icon name="alert" />
           <span className="grow">
             Falta crear la tabla de la Wallet en Supabase: corré{' '}
             <code>supabase/migrations/20261113000000_documentos.sql</code> en el SQL Editor. ({data.documentsError})
@@ -172,16 +182,17 @@ export function WalletView() {
           <div className="row">
             {person && visible.length > 0 && (
               <button onClick={exportPdf} disabled={exporting}>
+                <Icon name="download" />
                 {exporting ? 'Armando…' : `PDF de ${person.name}`}
               </button>
             )}
             {data.documents.length > 0 && (
               <button onClick={rereadAll} disabled={Boolean(rereading)}>
-                Volver a leer
+                <Icon name="refresh" /> Volver a leer
               </button>
             )}
             <button className="primary" onClick={() => setImporting(true)} disabled={Boolean(data.documentsError)}>
-              + Pases y reservas
+              <Icon name="plus" /> Pases y reservas
             </button>
           </div>
         </div>
@@ -191,13 +202,18 @@ export function WalletView() {
         </p>
       </section>
 
-      {rereading && <div className="notice">{rereading}</div>}
+      {rereading && (
+        <div className="notice">
+          <Icon name="refresh" />
+          <span className="grow">{rereading}</span>
+        </div>
+      )}
       <UnknownNames />
 
       {visible.length === 0 && !data.documentsError && (
         <section className="card stack-sm">
           <h3>Todavía no hay pases ni reservas</h3>
-          <p className="hint">Tocá “+ Pases y reservas” y elegí los PDFs de los vuelos y hoteles.</p>
+          <p className="hint">Tocá “Pases y reservas” y elegí los PDFs de los vuelos y hoteles.</p>
         </section>
       )}
 
@@ -206,14 +222,16 @@ export function WalletView() {
       {undated.length > 0 && (
         <section className="stack-sm">
           <h3 className="day-title">Sin fecha</h3>
-          {undated.map((doc) => (
-            <PassCard
-              key={doc.id}
-              doc={doc}
-              role="main"
-              onOpen={(original) => setOpen({ id: doc.id, doc: original })}
-            />
-          ))}
+          <div className="day-passes">
+            {undated.map((doc) => (
+              <PassCard
+                key={doc.id}
+                doc={doc}
+                role="main"
+                onOpen={(original) => setOpen({ id: doc.id, doc: original })}
+              />
+            ))}
+          </div>
         </section>
       )}
 
@@ -296,6 +314,7 @@ function UnknownNames() {
       </p>
       {names.map(({ name, count }) => (
         <div key={name} className="notice">
+          <Icon name="user" />
           <span className="grow">
             <strong>{name}</strong>
             <span className="hint">
@@ -331,30 +350,34 @@ const TIME_LABEL: Record<TravelDoc['kind'], string> = {
 function Who({ doc }: { doc: TravelDoc }) {
   const { ctx } = useTrip();
   const i = personIndex(ctx, doc.person_id);
+  if (i === -1)
+    return (
+      <span className="owner">
+        <Swatch index={-1} both /> Ambos
+      </span>
+    );
   return (
-    <span className="who">
-      {i === -1 ? (
-        'Ambos'
-      ) : (
-        <>
-          <Swatch index={i} />
-          {ctx.people[i].name}
-        </>
-      )}
+    <span className={`owner p${i + 1}`}>
+      <Swatch index={i} />
+      {ctx.people[i].name}
     </span>
   );
 }
 
 const isAirport = (s: string | null) => Boolean(s && /^[A-Z]{3}$/.test(s));
 
-/** "EZE ✈️ MAD" con las ciudades abajo; estaciones de tren en letra más chica; hoteles con su ciudad. */
+/** "EZE ✈ MAD" con las ciudades abajo; estaciones de tren en letra más chica; hoteles con su ciudad. */
 function Route({ doc, big }: { doc: TravelDoc; big?: boolean }) {
   const meta = KIND_META[doc.kind];
   if (doc.kind === 'hotel' || !doc.origin || !doc.destination) {
     return (
       <div className={`pass-title${big ? ' big' : ''}`}>
         {doc.title || doc.provider || meta.label}
-        {doc.kind === 'hotel' && doc.destination && <span className="pass-sub">📍 {doc.destination}</span>}
+        {doc.kind === 'hotel' && doc.destination && (
+          <span className="pass-sub">
+            <Icon name="pin" size={14} /> {doc.destination}
+          </span>
+        )}
       </div>
     );
   }
@@ -364,7 +387,9 @@ function Route({ doc, big }: { doc: TravelDoc; big?: boolean }) {
     <div>
       <div className={`pass-route${big ? ' big' : ''}${airports ? '' : ' places'}`}>
         <span>{doc.origin}</span>
-        <span className="pass-arrow">{meta.icon}</span>
+        <span className="pass-arrow">
+          <Icon name={meta.icon} size={big ? 26 : 20} />
+        </span>
         <span>{doc.destination}</span>
       </div>
       {airports && (cities[0] || cities[1]) && (
@@ -389,45 +414,72 @@ function PassCard({
   const meta = KIND_META[doc.kind];
   if (role === 'checkout') {
     return (
-      <button className={`pass compact ${doc.kind}`} onClick={() => onOpen(false)}>
+      <button className="tag pass compact land" onClick={() => onOpen(false)}>
+        <OwnerTab personId={doc.person_id} shared={!doc.person_id} />
         <span>
-          {meta.icon} Check-out · {doc.provider || doc.title}
+          <Icon name="bed" size={16} /> Check-out · {doc.provider || doc.title}
         </span>
         <span className="pass-meta">{doc.details?.checkout ? `hasta las ${doc.details.checkout}` : ''}</span>
       </button>
     );
   }
-  const facts = [
-    doc.time && `${TIME_LABEL[doc.kind]} ${doc.time}`,
-    doc.details?.boarding && `Embarque ${doc.details.boarding}`,
-    doc.seat && `Asiento ${doc.seat}`,
-    doc.details?.gate && `Puerta ${doc.details.gate}`,
-    doc.kind === 'hotel' &&
-      doc.details?.nights &&
-      `${doc.details.nights} noche${doc.details.nights === '1' ? '' : 's'}`,
-    doc.kind === 'hotel' && doc.end_date && `hasta ${fmtDay(doc.end_date)}`,
-  ].filter(Boolean);
+  const cells: [string, string | null | undefined][] = [
+    [TIME_LABEL[doc.kind], doc.time],
+    ['Embarque', doc.details?.boarding],
+    ['Asiento', doc.seat],
+    ['Coche', doc.details?.coach],
+    ['Puerta', doc.details?.gate],
+    ['Noches', doc.kind === 'hotel' ? doc.details?.nights : null],
+    ['Hasta', doc.kind === 'hotel' && doc.end_date ? fmtDay(doc.end_date) : null],
+  ];
   const title = doc.title || doc.provider || meta.label;
   return (
-    <div className={`pass ${doc.kind}`}>
+    <div className="tag pass land">
+      <OwnerTab personId={doc.person_id} shared={!doc.person_id} />
       <button className="pass-main" onClick={() => onOpen(false)}>
         <div className="pass-top">
-          <span>
-            {meta.icon} {doc.provider && doc.provider !== title ? doc.provider : meta.label}
+          <span className="kind">
+            <Icon name={meta.icon} size={16} />
+            {doc.provider && doc.provider !== title ? doc.provider : meta.label}
+            {doc.number && ` · ${doc.number}`}
           </span>
           <Who doc={doc} />
         </div>
         <Route doc={doc} />
-        <div className="pass-meta">
-          {[doc.number, ...facts].filter(Boolean).join(' · ')}
-          {doc.code_image && <span className="pass-code-hint"> · ▦ código</span>}
-        </div>
+        {cells.some(([, v]) => v) && (
+          <dl className="pass-cells">
+            {cells
+              .filter(([, v]) => v)
+              .map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))}
+          </dl>
+        )}
       </button>
-      {doc.file_path && (
-        <button className="pass-doc" onClick={() => onOpen(true)}>
-          📄 Documento original
-          {doc.pages?.length ? ` · ${doc.pages.length} pág.` : ''}
-        </button>
+      {(doc.file_path || doc.code_image) && (
+        <div className="pass-foot">
+          {doc.file_path ? (
+            <button className="pass-doc" onClick={() => onOpen(true)}>
+              <Icon name="file" size={16} /> Documento original
+              {doc.pages?.length ? ` · ${doc.pages.length} pág.` : ''}
+            </button>
+          ) : (
+            <span className="pass-meta">
+              <Icon name="qr" size={16} /> Código {doc.code_format?.replace('QRCode', 'QR') ?? ''} listo para escanear
+            </span>
+          )}
+          {doc.code_image && (
+            <img
+              className="pass-code-thumb"
+              src={doc.code_image}
+              alt={`Código ${doc.code_format ?? ''}`}
+              title="Tocá el pase para ver el código grande"
+            />
+          )}
+        </div>
       )}
     </div>
   );
@@ -456,8 +508,8 @@ function PassSheet({
   const meta = KIND_META[doc.kind];
   const at = order.indexOf(id);
 
-  const fields: [string, string | null | undefined][] = [
-    ['Pasajero', doc.passenger],
+  const fields: [string, string | null | undefined, boolean?][] = [
+    ['Pasajero', doc.passenger, true],
     ['Ciudad', doc.kind === 'hotel' ? doc.destination : null],
     ['Fecha', doc.date ? fmtDay(doc.date) : null],
     [TIME_LABEL[doc.kind], doc.time],
@@ -478,9 +530,9 @@ function PassSheet({
     ['Asiento', doc.seat],
     [doc.kind === 'flight' ? 'Vuelo' : 'Número', doc.number],
     ['Reserva', doc.reference],
-    ['Tramos', doc.details?.legs],
-    ['Dirección', doc.details?.address],
-    ['Notas', doc.notes],
+    ['Tramos', doc.details?.legs, true],
+    ['Dirección', doc.details?.address, true],
+    ['Notas', doc.notes, true],
   ];
 
   async function remove() {
@@ -536,21 +588,32 @@ function PassSheet({
   }
 
   return (
-    <Modal title={`${meta.icon} ${meta.label}`} onClose={onClose}>
+    <Modal
+      title={
+        <>
+          <Icon name={meta.icon} /> {meta.label}
+        </>
+      }
+      onClose={onClose}
+    >
       <div className="stack">
-        <div className={`pass sheet ${doc.kind}`}>
+        <div className="tag pass sheet">
+          <OwnerTab personId={doc.person_id} shared={!doc.person_id} />
           <div className="pass-top">
-            <span>{doc.provider || meta.label}</span>
+            <span className="kind">
+              <Icon name={meta.icon} size={16} />
+              {doc.provider || meta.label}
+            </span>
             <Who doc={doc} />
           </div>
           <Route doc={doc} big />
           <dl className="pass-fields">
             {fields
               .filter(([, v]) => v)
-              .map(([label, value]) => (
-                <div key={label}>
+              .map(([label, value, long]) => (
+                <div key={label} className={long ? 'wide' : undefined}>
                   <dt>{label}</dt>
-                  <dd>{value}</dd>
+                  <dd className={long ? 'text' : undefined}>{value}</dd>
                 </div>
               ))}
           </dl>
@@ -559,31 +622,39 @@ function PassSheet({
         {doc.code_image ? (
           <button className="code-box" onClick={() => setZoom(true)} title="Ver el código en pantalla completa">
             <img src={doc.code_image} alt={`Código ${doc.code_format ?? ''}`} />
-            <span className="hint">Tocá para agrandar · subí el brillo de la pantalla para escanear</span>
+            <span className="hint">
+              <Icon name="zoom" size={14} /> Tocá para agrandar · subí el brillo de la pantalla para escanear
+            </span>
           </button>
         ) : (
-          <div className="notice">Este documento no tiene un código legible: mostrá el PDF o la reserva.</div>
+          <div className="notice">
+            <Icon name="qr" />
+            <span className="grow">Este documento no tiene un código legible: mostrá el PDF o la reserva.</span>
+          </div>
         )}
 
         <div className="row">
-          <button onClick={() => setEditing(true)}>Editar</button>
+          <button onClick={() => setEditing(true)}>
+            <Icon name="pencil" /> Editar
+          </button>
           <button onClick={reread} disabled={rereading}>
+            <Icon name="refresh" />
             {rereading ? 'Leyendo…' : 'Volver a leer'}
           </button>
           <button className="danger" onClick={remove}>
-            Eliminar
+            <Icon name="trash" /> Eliminar
           </button>
         </div>
         {order.length > 1 && (
           <div className="row spread">
             <button onClick={() => onNavigate(order[at - 1])} disabled={at <= 0}>
-              ← Anterior
+              <Icon name="chevron-left" /> Anterior
             </button>
             <span className="hint">
               {at + 1} de {order.length}
             </span>
             <button onClick={() => onNavigate(order[at + 1])} disabled={at === -1 || at >= order.length - 1}>
-              Siguiente →
+              Siguiente <Icon name="chevron-right" />
             </button>
           </div>
         )}
@@ -656,14 +727,16 @@ function OriginalDoc({ doc, focus }: { doc: TravelDoc; focus: boolean }) {
   return (
     <section ref={ref} className="original-doc stack-sm">
       <div className="row spread">
-        <h3>📄 Documento original</h3>
+        <h3>
+          <Icon name="file" /> Documento original
+        </h3>
         {view.status === 'ready' && (
           <div className="row">
             <a className="btn small" href={view.fileUrl} target="_blank" rel="noreferrer">
-              Abrir
+              <Icon name="external" size={16} /> Abrir
             </a>
             <a className="btn small" href={view.fileUrl} download={fileName}>
-              Descargar
+              <Icon name="download" size={16} /> Descargar
             </a>
           </div>
         )}
@@ -679,7 +752,12 @@ function OriginalDoc({ doc, focus }: { doc: TravelDoc; focus: boolean }) {
         </div>
       )}
       {view.status === 'loading' && <p className="muted">Cargando el documento…</p>}
-      {view.status === 'error' && <div className="notice warning">{view.message}</div>}
+      {view.status === 'error' && (
+        <div className="notice warning">
+          <Icon name="alert" />
+          <span className="grow">{view.message}</span>
+        </div>
+      )}
       {view.status === 'ready' &&
         view.pages.map((url, i) => (
           <figure key={url} className="doc-page">
@@ -759,7 +837,7 @@ function DocEditor({ doc, initial, onClose }: { doc: TravelDoc; initial?: Partia
         <DocFieldsForm value={value} onChange={(patch) => setValue((v) => ({ ...v, ...patch }))} />
         <div className="actions">
           <button className="primary" disabled={busy}>
-            Guardar
+            <Icon name="check" /> Guardar
           </button>
           <button type="button" onClick={onClose}>
             Cancelar

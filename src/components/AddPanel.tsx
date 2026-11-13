@@ -4,6 +4,7 @@ import { fmtDate, fmtMoney } from '../lib/format';
 import { createDraftFromFile, errorMessage, getReadMode } from '../lib/receipts';
 import type { Extraction } from '../lib/types';
 import { useTrip } from '../state';
+import { Icon } from './Icon';
 
 interface UploadItem {
   name: string;
@@ -103,10 +104,10 @@ export function AddPanel() {
         >
           <div className="row" style={{ justifyContent: 'center' }}>
             <button className="primary" onClick={() => cameraInput.current?.click()} disabled={busy}>
-              📷 Sacar foto
+              <Icon name="camera" /> Sacar foto
             </button>
             <button onClick={() => fileInput.current?.click()} disabled={busy}>
-              Elegir archivos
+              <Icon name="upload" /> Elegir archivos
             </button>
           </div>
           <span className="hint">o arrastrá / pegá acá las imágenes o PDFs (podés subir varios juntos)</span>
@@ -170,9 +171,11 @@ export function AddPanel() {
         <p className="hint">Para gastos sin ticket (efectivo, propinas, transporte) o si preferís tipear.</p>
         <div className="row">
           <button className="primary" onClick={() => openEditor({ seed: {} })}>
-            + Gasto manual
+            <Icon name="plus" /> Gasto manual
           </button>
-          <button onClick={() => goTo('saldar')}>Registrar pago entre ustedes</button>
+          <button onClick={() => goTo('saldar')}>
+            <Icon name="swap" /> Registrar pago entre ustedes
+          </button>
         </div>
       </section>
     </div>
@@ -194,6 +197,7 @@ function UploadRow({
   const done = item.progress >= 1 && (item.expenseId || item.failed);
   return (
     <div className={`notice${item.failed ? ' warning' : ''}`}>
+      <Icon name={item.failed ? 'alert' : done ? 'check-circle' : 'hourglass'} />
       <div className="grow stack-sm">
         <div className="row spread">
           <strong style={{ overflowWrap: 'anywhere' }}>{item.name}</strong>

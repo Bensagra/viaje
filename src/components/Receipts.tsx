@@ -5,6 +5,7 @@ import { fmtDate, fmtMoney } from '../lib/format';
 import { errorMessage } from '../lib/receipts';
 import type { Attachment, Expense } from '../lib/types';
 import { useTrip } from '../state';
+import { Icon } from './Icon';
 import { FilePreview, isImage, Modal, PersonLabel, splitLabel, useSignedUrls, VerifyBadge } from './ui';
 
 type Item = { a: Attachment; e: Expense };
@@ -56,10 +57,10 @@ export function ReceiptsView() {
             <span className="label">Verificación</span>
             <select value={check} onChange={(e) => setCheck(e.target.value)}>
               <option value="all">Todas</option>
-              <option value="draft">⏳ Pendientes de revisar</option>
-              <option value="ok">✓ Tarjeta coincide</option>
-              <option value="mismatch">⚠ Tarjeta de la otra persona</option>
-              <option value="unknown">? Tarjeta no registrada</option>
+              <option value="draft">Pendientes de revisar</option>
+              <option value="ok">Tarjeta coincide</option>
+              <option value="mismatch">Tarjeta de la otra persona</option>
+              <option value="unknown">Tarjeta no registrada</option>
               <option value="missing">Sin terminación</option>
               <option value="na">Efectivo / otros</option>
             </select>
@@ -108,7 +109,7 @@ export function ReceiptsView() {
                 <strong className="num">{fmtMoney(e.amount, e.currency)}</strong>
                 <span className="hint">
                   {fmtDate(e.date)}
-                  {e.status === 'draft' && ' · ⏳ pendiente'}
+                  {e.status === 'draft' && ' · pendiente'}
                 </span>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {e.description || a.file_name}
@@ -198,7 +199,7 @@ export function ReceiptViewer({ ids, index, onClose }: { ids: string[]; index: n
             <dt>Categoría</dt>
             <dd>{e.category ?? '—'}</dd>
             <dt>Estado</dt>
-            <dd>{e.status === 'draft' ? '⏳ Pendiente de revisar' : 'Confirmado'}</dd>
+            <dd>{e.status === 'draft' ? 'Pendiente de revisar' : 'Confirmado'}</dd>
             {e.notes && (
               <>
                 <dt>Notas</dt>
@@ -216,16 +217,18 @@ export function ReceiptViewer({ ids, index, onClose }: { ids: string[]; index: n
                 openEditor({ id: e.id });
               }}
             >
-              {e.status === 'draft' ? 'Revisar' : 'Editar gasto'}
+              <Icon name="pencil" /> {e.status === 'draft' ? 'Revisar' : 'Editar gasto'}
             </button>
-            <button onClick={download}>Descargar</button>
+            <button onClick={download}>
+              <Icon name="download" /> Descargar
+            </button>
           </div>
           <div className="row">
             <button onClick={() => setI((n) => Math.max(0, n - 1))} disabled={i === 0}>
-              ← Anterior
+              <Icon name="chevron-left" /> Anterior
             </button>
             <button onClick={() => setI((n) => Math.min(ids.length - 1, n + 1))} disabled={i >= ids.length - 1}>
-              Siguiente →
+              Siguiente <Icon name="chevron-right" />
             </button>
           </div>
         </aside>

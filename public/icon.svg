@@ -1,8 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#0f766e"/>
-  <path d="M152 96H360V396l-26-18-26 18-26-18-26 18-26-18-26 18-26-18-26 18Z" fill="#fff"/>
-  <rect x="196" y="160" width="120" height="20" rx="10" fill="#0f766e"/>
-  <rect x="196" y="210" width="84" height="20" rx="10" fill="#0f766e" opacity=".55"/>
-  <circle cx="222" cy="298" r="26" fill="#2a78d6"/>
-  <circle cx="290" cy="298" r="26" fill="#eb6834"/>
+  <rect width="512" height="512" rx="112" fill="#1446d8"/>
+  <!-- etiqueta de valija: lengüeta naranja con ojal, cuerpo blanco con banda de código -->
+  <g transform="rotate(-18 256 256)">
+    <rect x="96" y="176" width="320" height="160" rx="18" fill="#ffffff"/>
+    <path d="M96 194a18 18 0 0 1 18-18h76v160h-76a18 18 0 0 1-18-18z" fill="#ff6a13"/>
+    <circle cx="143" cy="256" r="16" fill="#1446d8"/>
+    <line x1="190" y1="182" x2="190" y2="330" stroke="#ffffff" stroke-width="6" stroke-dasharray="12 10"/>
+    <g fill="#0b0b0b">
+      <rect x="218" y="206" width="110" height="26" rx="4"/>
+      <rect x="218" y="248" width="70" height="18" rx="4" opacity=".55"/>
+      <rect x="218" y="286" width="8" height="30"/><rect x="232" y="286" width="4" height="30"/><rect x="242" y="286" width="12" height="30"/>
+      <rect x="260" y="286" width="4" height="30"/><rect x="270" y="286" width="8" height="30"/><rect x="284" y="286" width="4" height="30"/>
+      <rect x="294" y="286" width="12" height="30"/><rect x="312" y="286" width="4" height="30"/><rect x="322" y="286" width="8" height="30"/>
+      <rect x="336" y="286" width="4" height="30"/><rect x="346" y="286" width="12" height="30"/><rect x="364" y="286" width="4" height="30"/>
+      <rect x="374" y="286" width="8" height="30"/><rect x="388" y="286" width="4" height="30"/>
+    </g>
+  </g>
 </svg>

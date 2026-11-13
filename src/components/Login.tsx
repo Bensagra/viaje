@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { errorMessage } from '../lib/receipts';
 import { supabase } from '../supabase';
+import { Icon } from './Icon';
 
 const AUTH_ERRORS: [RegExp, string][] = [
   [/invalid login credentials/i, 'Email o contraseña incorrectos.'],
@@ -13,6 +14,20 @@ const AUTH_ERRORS: [RegExp, string][] = [
   ],
   [/rate limit/i, 'Demasiados intentos seguidos: esperá unos minutos.'],
 ];
+
+export function Brand({ subtitle }: { subtitle?: string }) {
+  return (
+    <div className="brand">
+      <span className="mark" aria-hidden="true">
+        <Icon name="luggage" size={24} />
+      </span>
+      <div>
+        <h2>Gastos del viaje</h2>
+        {subtitle && <p className="hint">{subtitle}</p>}
+      </div>
+    </div>
+  );
+}
 
 export function Login() {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
@@ -54,10 +69,7 @@ export function Login() {
   return (
     <div className="center">
       <form className="card narrow stack" onSubmit={submit}>
-        <div>
-          <h2>🧳 Gastos del viaje</h2>
-          <p className="hint">Tickets, facturas y cuentas claras entre dos.</p>
-        </div>
+        <Brand subtitle="Tickets, facturas y cuentas claras entre dos." />
         <label className="field">
           <span className="label">Email</span>
           <input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -73,7 +85,12 @@ export function Login() {
             onChange={(e) => setPassword(e.target.value)}
           />
         </label>
-        {message && <div className={`notice ${message.error ? 'critical' : ''}`}>{message.text}</div>}
+        {message && (
+          <div className={`notice ${message.error ? 'critical' : ''}`}>
+            <Icon name={message.error ? 'alert' : 'check-circle'} />
+            <span className="grow">{message.text}</span>
+          </div>
+        )}
         <button className="primary" disabled={busy}>
           {busy ? '…' : mode === 'login' ? 'Entrar' : 'Crear cuenta'}
         </button>

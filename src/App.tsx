@@ -4,6 +4,7 @@ import { AddPanel } from './components/AddPanel';
 import { CreateTrip } from './components/CreateTrip';
 import { ExpenseEditor } from './components/ExpenseEditor';
 import { ExpenseList } from './components/ExpenseList';
+import { Icon, type IconName } from './components/Icon';
 import { Login } from './components/Login';
 import { ReceiptsView, ReceiptViewer } from './components/Receipts';
 import { SettingsView } from './components/Settings';
@@ -21,6 +22,16 @@ import { supabase, supabaseConfigured } from './supabase';
 const TRIP_KEY = 'viaje.tripId';
 // Copia local de lo último que se cargó: la Wallet (y el resto, solo lectura) anda sin conexión.
 const CACHE_KEY = 'viaje.cache.';
+
+const TAB_ICONS: Record<Tab, IconName> = {
+  resumen: 'coins',
+  wallet: 'wallet',
+  gastos: 'receipt',
+  cargar: 'camera',
+  facturas: 'image',
+  saldar: 'swap',
+  config: 'sliders',
+};
 
 function storageGet(key: string): string | null {
   try {
@@ -220,6 +231,19 @@ function TripShell({ session }: { session: Session }) {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
+  // En el celular las pestañas se desplazan: la activa queda siempre a la vista.
+  const tabsRef = useRef<HTMLElement>(null);
+  const [tabsAtEnd, setTabsAtEnd] = useState(false);
+  useEffect(() => {
+    const nav = tabsRef.current;
+    if (!nav) return;
+    nav.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+    const onScroll = () => setTabsAtEnd(nav.scrollLeft + nav.clientWidth >= nav.scrollWidth - 4);
+    onScroll();
+    nav.addEventListener('scroll', onScroll, { passive: true });
+    return () => nav.removeEventListener('scroll', onScroll);
+  }, [tab]);
+
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), toast.kind === 'error' ? 6000 : 2500);
@@ -323,7 +347,9 @@ function TripShell({ session }: { session: Session }) {
           <p>{loadError}</p>
           <p className="hint">¿Corriste la migración SQL en tu proyecto de Supabase? (ver README)</p>
           <div className="row">
-            <button onClick={() => (tripId ? void reload() : void refreshTrips())}>Reintentar</button>
+            <button onClick={() => (tripId ? void reload() : void refreshTrips())}>
+              <Icon name="refresh" /> Reintentar
+            </button>
             <button onClick={() => void supabase.auth.signOut()}>Cerrar sesión</button>
           </div>
         </div>
@@ -359,10 +385,12 @@ function TripShell({ session }: { session: Session }) {
   return (
     <TripContext.Provider value={state}>
       <div className="app">
-        <div className="topbar">
+        <header className="topbar">
           <div className="topbar-row">
+            <span className="mark" aria-hidden="true">
+              <Icon name="luggage" size={20} />
+            </span>
             <div className="title">
-              <span aria-hidden="true">🧳</span>
               {trips.length > 1 ? (
                 <select
                   aria-label="Viaje"
@@ -377,16 +405,17 @@ function TripShell({ session }: { session: Session }) {
                   <option value="__new">+ Nuevo viaje…</option>
                 </select>
               ) : (
-                <span>{state.data.trip.name}</span>
+                <h1 className="title">{state.data.trip.name}</h1>
               )}
             </div>
-            <button className="icon" onClick={() => void reload()} title="Actualizar" aria-label="Actualizar">
-              ↻
+            <button className="icon quiet" onClick={() => void reload()} title="Actualizar" aria-label="Actualizar">
+              <Icon name="refresh" />
             </button>
           </div>
-          <nav className="tabs">
+          <nav ref={tabsRef} className={`tabs${tabsAtEnd ? ' at-end' : ''}`} aria-label="Secciones">
             {TABS.map((t) => (
               <button key={t.id} aria-current={tab === t.id ? 'page' : undefined} onClick={() => goTo(t.id)}>
+                <Icon name={TAB_ICONS[t.id]} size={18} />
                 {t.label}
                 {t.id === 'gastos' && drafts > 0 && (
                   <span className="count" title="Comprobantes pendientes de revisar">
@@ -398,16 +427,20 @@ function TripShell({ session }: { session: Session }) {
           </nav>
           {offline && (
             <div className="notice warning" style={{ marginBottom: 12 }}>
-              Sin conexión: estás viendo lo último guardado en este teléfono. Los cambios se van a poder hacer cuando
-              vuelva la conexión.
+              <Icon name="alert" />
+              <span className="grow">
+                Sin conexión: estás viendo lo último guardado en este teléfono. Los cambios se van a poder hacer cuando
+                vuelva la conexión.
+              </span>
             </div>
           )}
-        </div>
+        </header>
         <main key={`${tab}-${navKey}`}>{views[tab]}</main>
       </div>
       {tab !== 'cargar' && tab !== 'wallet' && !editor && !viewer && (
         <label className="fab" title="Sacar foto de un ticket">
-          📷 Ticket
+          <Icon name="camera" />
+          Ticket
           <input
             className="visually-hidden"
             type="file"

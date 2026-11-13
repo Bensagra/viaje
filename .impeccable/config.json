@@ -1,0 +1,89 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "low-contrast",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/assigned.html"
+        ],
+        "createdAt": "2026-11-13T20:43:20.060Z",
+        "reason": "Claude: boceto de la página de decisión, no UI de la app; la página lo dibuja como esqueleto"
+      },
+      {
+        "rule": "low-contrast",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/challenger-split-flap.html"
+        ],
+        "createdAt": "2026-11-13T20:43:20.075Z",
+        "reason": "Claude: boceto de la página de decisión, no UI de la app; la página lo dibuja como esqueleto"
+      },
+      {
+        "rule": "low-contrast",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/canon.html"
+        ],
+        "createdAt": "2026-11-13T20:43:20.090Z",
+        "reason": "Claude: boceto de la página de decisión, no UI de la app; la página lo dibuja como esqueleto"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/assigned.html"
+        ],
+        "createdAt": "2026-11-13T20:47:38.685Z",
+        "reason": "Claude: boceto de la página de decisión (fixture), no UI de la app"
+      },
+      {
+        "rule": "undersized-ui-text",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/assigned.html"
+        ],
+        "createdAt": "2026-11-13T20:47:38.701Z",
+        "reason": "Claude: boceto de la página de decisión (fixture), no UI de la app"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/challenger-split-flap.html"
+        ],
+        "createdAt": "2026-11-13T20:47:38.717Z",
+        "reason": "Claude: boceto de la página de decisión (fixture), no UI de la app"
+      },
+      {
+        "rule": "undersized-ui-text",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/challenger-split-flap.html"
+        ],
+        "createdAt": "2026-11-13T20:47:38.732Z",
+        "reason": "Claude: boceto de la página de decisión (fixture), no UI de la app"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/canon.html"
+        ],
+        "createdAt": "2026-11-13T20:47:38.749Z",
+        "reason": "Claude: boceto de la página de decisión (fixture), no UI de la app"
+      },
+      {
+        "rule": "undersized-ui-text",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/canon.html"
+        ],
+        "createdAt": "2026-11-13T20:47:38.765Z",
+        "reason": "Claude: boceto de la página de decisión (fixture), no UI de la app"
+      }
+    ]
+  }
+}

@@ -16,12 +16,14 @@ import {
 import { errorMessage } from '../lib/receipts';
 import type { PaymentMethod } from '../lib/types';
 import { useTrip } from '../state';
-import { Swatch } from './ui';
+import { Icon } from './Icon';
+import { Barcode, OwnerTab, Swatch } from './ui';
 
 export function SettleView() {
   const { data, ctx, summary: s, reload, notify, openEditor } = useTrip();
   const base = data.trip.base_currency;
   const debt = debtOf(s.balance, ctx);
+  const debtorIndex = debt ? personIndex(ctx, debt.from.id) : -1;
   const [fromId, setFromId] = useState(debt?.from.id ?? ctx.people[0].id);
   const [amount, setAmount] = useState(debt ? amountInput(round2(debt.amount)) : '');
   const [currency, setCurrency] = useState(base);
@@ -94,15 +96,18 @@ export function SettleView() {
 
   return (
     <div className="stack">
-      <section className="card hero">
-        <div>
-          <div className="hero-label">{debt ? `${debt.from.name} le debe a ${debt.to.name}` : 'Están a mano'}</div>
-          <div className="hero-figure">{fmtMoney(debt?.amount ?? 0, base)}</div>
-        </div>
-        {s.drafts.length > 0 && (
-          <p className="hint">⏳ Ojo: hay {s.drafts.length} comprobante(s) pendientes que todavía no cuentan.</p>
+      <section className={`tag claim land ${debt ? `stock-p${debtorIndex + 1}` : 'stock-neutral'}`}>
+        <OwnerTab personId={debt?.from.id ?? null} shared={!debt} />
+        <div className="claim-who">{debt ? `${debt.from.name} le debe a ${debt.to.name}` : 'Están a mano'}</div>
+        <div className="claim-amount">{fmtMoney(debt?.amount ?? 0, base)}</div>
+        {(s.drafts.length > 0 || s.missingRate.length > 0) && (
+          <p className="claim-note">
+            {s.drafts.length > 0 &&
+              `Ojo: hay ${s.drafts.length} comprobante${s.drafts.length === 1 ? '' : 's'} pendiente${s.drafts.length === 1 ? '' : 's'} que todavía no cuentan. `}
+            {s.missingRate.length > 0 && 'Hay gastos sin cotización que no entran en este saldo.'}
+          </p>
         )}
-        {s.missingRate.length > 0 && <p className="hint">⚠ Hay gastos sin cotización que no entran en este saldo.</p>}
+        <Barcode value={`${ctx.trip.id}:${Math.round(s.balance * 100)}`} />
       </section>
 
       <form className="card stack" onSubmit={submit}>
@@ -165,9 +170,15 @@ export function SettleView() {
           <span className="label">Nota (opcional)</span>
           <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ej: transferencia Mercado Pago" />
         </label>
-        {error && <div className="notice critical">{error}</div>}
+        {error && (
+          <div className="notice critical">
+            <Icon name="alert" />
+            <span className="grow">{error}</span>
+          </div>
+        )}
         <div className="row">
           <button className="primary" disabled={busy}>
+            <Icon name="swap" />
             {busy ? 'Guardando…' : `Registrar pago de ${from.name} a ${to.name}`}
           </button>
           {debt && (

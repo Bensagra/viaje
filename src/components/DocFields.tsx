@@ -1,16 +1,17 @@
 import { useState } from 'react';
 import type { DocFields, DocKind } from '../lib/types';
 import { useTrip } from '../state';
+import type { IconName } from './Icon';
 import { Swatch } from './ui';
 
-export const KIND_META: Record<DocKind, { label: string; icon: string }> = {
-  flight: { label: 'Vuelo', icon: '✈️' },
-  hotel: { label: 'Alojamiento', icon: '🏨' },
-  train: { label: 'Tren', icon: '🚆' },
-  bus: { label: 'Bus', icon: '🚌' },
-  car: { label: 'Auto', icon: '🚗' },
-  event: { label: 'Entrada', icon: '🎟️' },
-  other: { label: 'Otro', icon: '📄' },
+export const KIND_META: Record<DocKind, { label: string; icon: IconName }> = {
+  flight: { label: 'Vuelo', icon: 'plane' },
+  hotel: { label: 'Alojamiento', icon: 'bed' },
+  train: { label: 'Tren', icon: 'train' },
+  bus: { label: 'Bus', icon: 'bus' },
+  car: { label: 'Auto', icon: 'car' },
+  event: { label: 'Entrada', icon: 'ticket' },
+  other: { label: 'Otro', icon: 'file' },
 };
 
 /** Campos editables de un pase/reserva (se usa al editar y al revisar una importación). */
@@ -51,6 +52,7 @@ export function DocFieldsForm({
           </button>
         ))}
         <button type="button" aria-pressed={!value.person_id} onClick={() => onChange({ person_id: null })}>
+          <Swatch index={-1} both />
           Ambos
         </button>
       </div>
@@ -60,7 +62,7 @@ export function DocFieldsForm({
           <select value={kind} onChange={(e) => onChange({ kind: e.target.value as DocKind })}>
             {(Object.keys(KIND_META) as DocKind[]).map((k) => (
               <option key={k} value={k}>
-                {KIND_META[k].icon} {KIND_META[k].label}
+                {KIND_META[k].label}
               </option>
             ))}
           </select>
