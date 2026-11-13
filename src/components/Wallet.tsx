@@ -472,6 +472,7 @@ function PassSheet({
     ['Embarque', doc.details?.boarding],
     ['Coche', doc.details?.coach],
     ['Andén', doc.details?.platform],
+    ['Terminal', doc.details?.terminal],
     ['Puerta', doc.details?.gate],
     ['Grupo', doc.details?.group],
     ['Asiento', doc.seat],
@@ -485,13 +486,14 @@ function PassSheet({
   async function remove() {
     if (!doc || !confirm('¿Eliminar este pase o reserva?')) return;
     try {
-      // El PDF completo lo pueden compartir varios documentos (ej: el de los dos pases).
-      const sourceInUse =
-        Boolean(doc.source_path) && data.documents.some((d) => d.id !== doc.id && d.source_path === doc.source_path);
-      await api.deleteDocument(doc, sourceInUse);
-      await forgetDocFiles(
-        [doc.file_path, sourceInUse ? null : doc.source_path].filter((p): p is string => Boolean(p)),
+      // Un mismo archivo lo pueden compartir varios documentos (ej: el PDF con los pases de los dos).
+      const inUse = new Set(
+        data.documents
+          .filter((d) => d.id !== doc.id)
+          .flatMap((d) => [d.file_path, d.source_path].filter((p): p is string => Boolean(p))),
       );
+      await api.deleteDocument(doc, inUse);
+      await forgetDocFiles([doc.file_path, doc.source_path].filter((p): p is string => Boolean(p) && !inUse.has(p!)));
       await reload();
       onClose();
     } catch (err) {

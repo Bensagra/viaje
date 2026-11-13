@@ -61,22 +61,33 @@ En el celular, abrila y usá "Agregar a pantalla de inicio" para tenerla como ap
 - **PDF de Juli / PDF de Santi** arma un solo PDF con todos los pases y reservas de esa persona.
 - Al pie de cada pase o reserva está el **documento original**: las páginas de ese pase a la vista (con Abrir y Descargar) y, si venía en un PDF compartido, el **archivo completo** tal como se subió. Los documentos quedan guardados en el teléfono, así que también se abren sin conexión.
 
-## Lectura con IA (opcional)
+## Lectura con IA (recomendada)
 
-Sin configurar nada, los tickets se leen con OCR en el propio dispositivo (Tesseract, gratis; los PDFs digitales se leen directo). Funciona bien con tickets impresos nítidos. Para fotos difíciles (arrugadas, torcidas, con poca luz) conviene la lectura con Claude:
+Sin configurar nada, la app lee todo en el propio dispositivo: los tickets con OCR (Tesseract) y los pases y reservas con reglas fijas. Funciona, pero se equivoca con formatos raros: ciudades de hoteles y trenes, PDFs con varios pasajeros, nombres que no coinciden con los apodos. Con la IA (Claude) cada archivo se lee entero, como lo leería una persona:
+
+- **Pases y reservas** (`read-travel-doc`): divide el PDF en un documento por pasajero y por tramo, dice de quién es cada uno (usa los apodos y los nombres en pasajes de Config → Personas), y saca ciudades, estaciones, horarios, puerta, terminal, coche, andén, dirección del hotel y avisos importantes ("check-in online obligatorio"). Los códigos QR/Aztec se siguen leyendo en el dispositivo y la IA decide a qué pase va cada uno.
+- **Tickets** (`extract-receipt`): total, moneda, fecha, comercio y terminación de tarjeta.
+
+Para activarla (una sola vez, desde la carpeta del proyecto):
 
 ```bash
+npx supabase login
+npx supabase functions deploy read-travel-doc --project-ref <ref>
 npx supabase functions deploy extract-receipt --project-ref <ref>
 npx supabase secrets set ANTHROPIC_API_KEY=sk-ant-... --project-ref <ref>
 ```
 
-En modo "Automático" (Config → Lectura de tickets) la app usa la IA si la función responde y si no vuelve al OCR local. La función:
+`<ref>` es el id del proyecto (lo que va antes de `.supabase.co` en la URL). La API key se crea en console.anthropic.com → API Keys (necesita crédito cargado).
 
-- descarga el archivo con el usuario logueado, así que respeta los permisos del viaje;
-- usa `claude-opus-5-5` con esfuerzo bajo y salida estructurada (JSON schema); se puede cambiar el modelo con el secret `ANTHROPIC_MODEL`;
-- tiene activado el *fallback* del servidor (`fallbacks: "default"`): si un filtro de seguridad rechazara una imagen, la reintenta otro modelo en vez de fallar.
+En modo "Automático" (Config → Lectura de tickets, pases y reservas) la app usa la IA si las funciones responden y, si no, la lectura básica. Al importar se ve qué se usó ("✨ Leído con IA" o "Lectura básica"). **Volver a leer** en la Wallet también usa la IA, así que los pases que ya subieron se pueden releer sin volver a cargarlos (lo que corrigieron a mano no se pisa).
 
-Cada lectura cuesta del orden de 1-2 centavos de dólar (una imagen de ticket y una respuesta corta).
+Las funciones:
+
+- descargan el archivo con el usuario logueado, así que respetan los permisos del viaje;
+- usan `claude-opus-5-5` con salida estructurada (JSON schema); se puede cambiar el modelo con el secret `ANTHROPIC_MODEL`;
+- tienen activado el *fallback* del servidor (`fallbacks: "default"`): si un filtro de seguridad rechazara un archivo, lo reintenta otro modelo en vez de fallar.
+
+Costo aproximado: 1-2 centavos de dólar por ticket y 5-15 centavos por PDF de pases o reserva de pocas páginas.
 
 ## Seguridad
 
@@ -100,6 +111,7 @@ npm run build     # chequeo de tipos + build de producción
 - `src/lib/receipts.ts`: flujo subir → leer (IA u OCR) → borrador.
 - `src/lib/travelParser.ts`: código de tarjeta de embarque, de quién es cada pase, tipo de documento y cómo dividir un archivo.
 - `src/lib/travelDocs.ts`: render de páginas, lectura de códigos, recorte y PDF por persona.
+- `src/lib/travelAI.ts`: pide la lectura a la IA y la convierte en pases (con la lectura local como respaldo).
 - `src/components/`: pantallas (Resumen, Wallet, Gastos, Cargar, Facturas, Saldar, Config) y los editores.
 - `public/sw.js`: guarda la app en el teléfono para abrirla sin conexión.
-- `supabase/migrations/`: esquema, RLS y storage. `supabase/functions/extract-receipt/`: lectura con IA.
+- `supabase/migrations/`: esquema, RLS y storage. `supabase/functions/extract-receipt/` y `read-travel-doc/`: lectura con IA.

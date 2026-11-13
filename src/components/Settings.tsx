@@ -483,13 +483,25 @@ function RateRow({
 function ReadModeSection() {
   const [mode, setMode] = useState<ReadMode>(getReadMode);
   const options: [ReadMode, string, string][] = [
-    ['auto', 'Automático', 'Usa la IA si la función está desplegada en Supabase; si no, OCR en el dispositivo.'],
-    ['local', 'Solo OCR en el dispositivo', 'Gratis y privado. Más lento y menos preciso con fotos difíciles.'],
-    ['ai', 'Solo IA (Claude)', 'Más preciso. Necesita la Edge Function “extract-receipt” y una API key (ver README).'],
+    [
+      'auto',
+      'Automático',
+      'Usa la IA si las funciones están desplegadas en Supabase; si no, la lectura básica en el dispositivo.',
+    ],
+    [
+      'local',
+      'Solo en el dispositivo',
+      'Gratis y privado. OCR para tickets y reglas fijas para pases: puede errar ciudades, fechas o de quién es cada pase.',
+    ],
+    [
+      'ai',
+      'Solo IA (Claude)',
+      'Lo más preciso. Necesita las Edge Functions “extract-receipt” y “read-travel-doc” y una API key (ver README).',
+    ],
   ];
   return (
     <section className="card stack-sm">
-      <h3>Lectura de tickets</h3>
+      <h3>Lectura de tickets, pases y reservas</h3>
       {options.map(([value, label, hint]) => (
         <label key={value} className="check" style={{ alignItems: 'flex-start' }}>
           <input

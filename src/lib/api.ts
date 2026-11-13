@@ -189,7 +189,7 @@ export async function deleteAttachment(a: Pick<Attachment, 'id' | 'storage_path'
   check(await supabase.from('attachments').delete().eq('id', a.id));
 }
 
-async function removeFiles(paths: string[]) {
+export async function removeFiles(paths: string[]) {
   for (let i = 0; i < paths.length; i += 100) {
     // Si falla el borrado del archivo no frenamos: lo importante es el registro.
     await supabase.storage.from(RECEIPTS_BUCKET).remove(paths.slice(i, i + 100));
@@ -239,13 +239,13 @@ export async function updateDocument(id: string, patch: Partial<DocFields>) {
   check(await supabase.from('documents').update(patch).eq('id', id));
 }
 
-/** Borra un documento y sus archivos; el original completo solo si ningún otro documento lo usa. */
+/** Borra un documento y sus archivos, salvo los que otros documentos siguen usando (`inUse`). */
 export async function deleteDocument(
   doc: Pick<TravelDoc, 'id' | 'file_path' | 'preview_path' | 'source_path'>,
-  sourceInUse: boolean,
+  inUse: Set<string>,
 ) {
-  const paths = [doc.file_path, doc.preview_path, sourceInUse ? null : doc.source_path];
-  await removeFiles(paths.filter((p): p is string => Boolean(p)));
+  const paths = [doc.file_path, doc.preview_path, doc.source_path];
+  await removeFiles(paths.filter((p): p is string => Boolean(p) && !inUse.has(p!)));
   check(await supabase.from('documents').delete().eq('id', doc.id));
 }
 

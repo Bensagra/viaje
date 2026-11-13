@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { errorMessage } from '../lib/receipts';
 import type { ProcessedFile } from '../lib/travelDocs';
 import * as api from '../lib/api';
@@ -16,16 +16,34 @@ interface Item {
   include: boolean;
 }
 
+/** Cómo se leyó cada archivo y el original ya subido (para la IA), si lo hay. */
+interface FileInfo {
+  via: 'ai' | 'local';
+  aiError: string | null;
+  sourcePath: string | null;
+}
+
 let nextKey = 0;
 
 export function DocImport({ onClose }: { onClose: () => void }) {
   const { ctx, reload, notify } = useTrip();
   const [files, setFiles] = useState<ProcessedFile[]>([]);
+  const [info, setInfo] = useState<FileInfo[]>([]);
+  // Originales subidos para la IA que todavía no usa ningún documento guardado: se borran al cerrar.
+  const pendingSources = useRef(new Set<string>());
   const [items, setItems] = useState<Item[]>([]);
   const [status, setStatus] = useState<string | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const busy = Boolean(status);
+
+  /** Al cerrar, se borran los originales que se subieron para la IA y no quedaron en ningún documento. */
+  function close() {
+    const unused = [...pendingSources.current];
+    pendingSources.current.clear();
+    if (unused.length) void api.removeFiles(unused);
+    onClose();
+  }
 
   async function add(list: FileList | null) {
     const chosen = Array.from(list ?? []);
@@ -33,14 +51,20 @@ export function DocImport({ onClose }: { onClose: () => void }) {
     const travel = await import('../lib/travelDocs');
     const travelCtx = { people: ctx.people, tripStart: ctx.trip.start_date, tripEnd: ctx.trip.end_date };
     const newFiles: ProcessedFile[] = [];
+    const newInfo: FileInfo[] = [];
     const newItems: Item[] = [];
     for (const file of chosen) {
       try {
         setStatus(`${file.name}: preparando…`);
         const processed = await travel.processFile(file, (label) => setStatus(`${file.name}: ${label}`));
+        const result = await travel.analyzeFile(ctx.trip.id, processed, travelCtx, (label) =>
+          setStatus(`${file.name}: ${label}…`),
+        );
+        if (result.sourcePath) pendingSources.current.add(result.sourcePath);
         const fileIndex = files.length + newFiles.length;
         newFiles.push(processed);
-        for (const draft of travel.draftsFor(processed, travelCtx)) {
+        newInfo.push({ via: result.via, aiError: result.aiError, sourcePath: result.sourcePath });
+        for (const draft of result.drafts) {
           newItems.push({ key: nextKey++, fileIndex, draft, fields: fieldsFromDraft(draft), include: true });
         }
       } catch (err) {
@@ -48,6 +72,7 @@ export function DocImport({ onClose }: { onClose: () => void }) {
       }
     }
     setFiles((f) => [...f, ...newFiles]);
+    setInfo((i) => [...i, ...newInfo]);
     setItems((i) => [...i, ...newItems]);
     setStatus(null);
   }
@@ -89,10 +114,12 @@ export function DocImport({ onClose }: { onClose: () => void }) {
     setSaving(true);
     const travel = await import('../lib/travelDocs');
     const failed: Item[] = [];
-    // El PDF completo se guarda una vez por archivo, solo si se dividió (si no, el documento ya es el original).
+    // El original completo se sube una vez por archivo (ya está subido si lo leyó la IA); sin IA, solo si se dividió.
     const sources = new Map<number, Promise<string>>();
     const sourceFor = (item: Item) => {
       const file = files[item.fileIndex];
+      const uploaded = info[item.fileIndex]?.sourcePath;
+      if (uploaded) return Promise.resolve(uploaded);
       if (file.type !== 'pdf' || item.draft.pages.length === file.pages.length) return Promise.resolve(null);
       if (!sources.has(item.fileIndex)) sources.set(item.fileIndex, travel.uploadSource(ctx.trip.id, file));
       return sources.get(item.fileIndex)!;
@@ -127,6 +154,7 @@ export function DocImport({ onClose }: { onClose: () => void }) {
           personName,
           sourcePath,
         );
+        if (sourcePath) pendingSources.current.delete(sourcePath);
         // Solo si la persona la eligieron a mano (no lo que propuso la app).
         const passenger = item.draft.passenger;
         const personId = f.person_id;
@@ -157,7 +185,7 @@ export function DocImport({ onClose }: { onClose: () => void }) {
       notify(`Se guardaron ${chosen.length - failed.length}; ${failed.length} fallaron`, 'error');
     } else {
       notify(`${chosen.length} guardado${chosen.length === 1 ? '' : 's'} en la Wallet`);
-      onClose();
+      close();
     }
   }
 
@@ -166,7 +194,7 @@ export function DocImport({ onClose }: { onClose: () => void }) {
   const shared = included.filter((i) => !i.fields.person_id).length;
 
   return (
-    <Modal title="Agregar pases y reservas" onClose={onClose} wide dismissable={false}>
+    <Modal title="Agregar pases y reservas" onClose={close} wide dismissable={false}>
       <div className="stack">
         <div className="dropzone">
           <label className={`btn primary${busy ? ' disabled' : ''}`}>
@@ -190,6 +218,16 @@ export function DocImport({ onClose }: { onClose: () => void }) {
         </div>
 
         {status && <div className="notice">{status}</div>}
+        {info.find((i) => i.aiError) && (
+          <div className="notice warning">
+            <span className="grow">
+              No se pudo leer con IA (
+              {info.find((i) => i.aiError)!.aiError!.replace(/^Lectura con IA no disponible: /, '')}), así que se usó la
+              lectura básica. Para activar la IA hay que desplegar la función “read-travel-doc” y cargar la API key de
+              Anthropic (ver README).
+            </span>
+          </div>
+        )}
         {errors.map((e, i) => (
           <div key={i} className="notice critical">
             {e}
@@ -205,7 +243,12 @@ export function DocImport({ onClose }: { onClose: () => void }) {
                 {file.name}{' '}
                 <span className="hint">
                   · {file.pages.length} pág. → {fileItems.length} documento{fileItems.length === 1 ? '' : 's'}
-                </span>
+                </span>{' '}
+                {info[fileIndex]?.via === 'ai' ? (
+                  <span className="badge good">✨ Leído con IA</span>
+                ) : (
+                  <span className="badge muted">Lectura básica</span>
+                )}
               </h3>
               {fileItems.map((item, n) => {
                 const pages = item.draft.pages.map((p) => file.pages.find((x) => x.index === p)).filter(Boolean);
@@ -277,7 +320,7 @@ export function DocImport({ onClose }: { onClose: () => void }) {
               {shared ? ` · Ambos ${shared}` : ''}
             </span>
             <span className="right">
-              <button onClick={onClose} disabled={saving}>
+              <button onClick={close} disabled={saving}>
                 Cancelar
               </button>
             </span>

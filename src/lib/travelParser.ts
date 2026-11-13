@@ -754,6 +754,8 @@ export interface DocDraft extends ExtractedFields {
   personId: string | null;
   code: { page: number; codeIndex: number; format: string; text: string } | null;
   warnings: string[];
+  /** Algo a tener en cuenta (lo agrega la lectura con IA). */
+  notes?: string | null;
 }
 
 const BOARDING_WORDS = new RegExp(
@@ -856,7 +858,7 @@ export function fieldsFromDraft(d: DocDraft): Partial<DocFields> {
     reference: d.reference,
     passenger: d.passenger,
     details: d.details,
-    notes: null,
+    notes: d.notes ?? null,
   };
 }
 

@@ -86,15 +86,15 @@ export function normalizeExtraction(raw: unknown, source: Extraction['source']):
   };
 }
 
-async function readWithAI(path: string, ctx: Ctx): Promise<Extraction> {
-  const { data, error } = await supabase.functions.invoke('extract-receipt', {
-    body: {
-      path,
-      currencies: [ctx.trip.base_currency, ...ctx.rates.keys()],
-      tripStart: ctx.trip.start_date,
-      tripEnd: ctx.trip.end_date,
-    },
-  });
+/** ¿Conviene intentar con IA? (según Config, y si no falló antes por no estar desplegada). */
+export function aiAllowed(): boolean {
+  const mode = getReadMode();
+  return mode === 'ai' || (mode === 'auto' && !aiUnavailable);
+}
+
+/** Llama a una Edge Function de IA; si no está desplegada o falta la API key, no se reintenta en esta sesión. */
+export async function callAI<T>(name: string, body: Record<string, unknown>): Promise<T> {
+  const { data, error } = await supabase.functions.invoke(name, { body });
   if (error) {
     let detail = error.message;
     if (error instanceof FunctionsHttpError) {
@@ -111,6 +111,16 @@ async function readWithAI(path: string, ctx: Ctx): Promise<Extraction> {
     }
     throw new Error(`Lectura con IA no disponible: ${detail}`);
   }
+  return data as T;
+}
+
+async function readWithAI(path: string, ctx: Ctx): Promise<Extraction> {
+  const data = await callAI<unknown>('extract-receipt', {
+    path,
+    currencies: [ctx.trip.base_currency, ...ctx.rates.keys()],
+    tripStart: ctx.trip.start_date,
+    tripEnd: ctx.trip.end_date,
+  });
   return normalizeExtraction(data, 'ai');
 }
 
@@ -121,13 +131,12 @@ export async function readReceipt(
   ctx: Ctx,
   onProgress?: OcrProgress,
 ): Promise<{ extraction: Extraction; text: string | null }> {
-  const mode = getReadMode();
-  if (mode === 'ai' || (mode === 'auto' && !aiUnavailable)) {
+  if (aiAllowed()) {
     try {
       onProgress?.(0, 'Leyendo con IA');
       return { extraction: await readWithAI(attachment.storage_path, ctx), text: null };
     } catch (err) {
-      if (mode === 'ai') throw err;
+      if (getReadMode() === 'ai') throw err;
     }
   }
   const file = blob ?? (await api.downloadFile(attachment.storage_path));

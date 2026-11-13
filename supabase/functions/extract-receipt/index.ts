@@ -3,8 +3,8 @@
 //
 // Deploy:  npx supabase functions deploy extract-receipt --project-ref <ref>
 // Secret:  npx supabase secrets set ANTHROPIC_API_KEY=sk-ant-... --project-ref <ref>
-import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
-import { betaJSONSchemaOutputFormat } from 'npm:@anthropic-ai/sdk@1.3.0/helpers/beta/json-schema';
+import Anthropic from 'npm:@anthropic-ai/sdk@1.8.0';
+import { betaJSONSchemaOutputFormat } from 'npm:@anthropic-ai/sdk@1.8.0/helpers/beta/json-schema';
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { encodeBase64 } from 'jsr:@std/encoding@1/base64';
 

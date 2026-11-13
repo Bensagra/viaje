@@ -9,6 +9,8 @@ import * as api from './api';
 import { prepareUpload } from './image';
 import { loadPdfjs, ocr, type OcrProgress } from './ocr';
 import { getDocFile } from './docFiles';
+import { aiAllowed, getReadMode } from './receipts';
+import { readTravelWithAI } from './travelAI';
 import { fieldsFromDraft, splitIntoDocs, type DocDraft, type TravelContext } from './travelParser';
 import type { DocFields, TravelDoc } from './types';
 
@@ -94,28 +96,78 @@ function cropCode(page: HTMLCanvasElement, box: { x: number; y: number; w: numbe
   return crop.toDataURL('image/png');
 }
 
-async function findCodes(canvas: HTMLCanvasElement): Promise<FoundCode[]> {
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-  const results = await readBarcodes(ctx.getImageData(0, 0, canvas.width, canvas.height), {
-    formats: ['QRCode', 'Aztec', 'PDF417', 'DataMatrix'],
+type Hit = { format: string; text: string; box: { x: number; y: number; w: number; h: number } };
+
+const ALL_FORMATS = ['QRCode', 'Aztec', 'PDF417', 'DataMatrix'] as const;
+const DENSE_FORMATS = ['Aztec', 'PDF417', 'DataMatrix'] as const;
+
+/** Busca códigos en la página (opcionalmente con margen blanco y/o achicada); las cajas quedan en coordenadas de `canvas`. */
+async function scanPage(
+  canvas: HTMLCanvasElement,
+  margin = 0,
+  scale = 1,
+  formats: readonly (typeof ALL_FORMATS)[number][] = ALL_FORMATS,
+): Promise<Hit[]> {
+  let source = canvas;
+  if (margin || scale !== 1) {
+    source = document.createElement('canvas');
+    source.width = Math.round(canvas.width * scale) + margin * 2;
+    source.height = Math.round(canvas.height * scale) + margin * 2;
+    const c = source.getContext('2d')!;
+    c.fillStyle = '#fff';
+    c.fillRect(0, 0, source.width, source.height);
+    c.drawImage(canvas, margin, margin, canvas.width * scale, canvas.height * scale);
+  }
+  const ctx = source.getContext('2d', { willReadFrequently: true })!;
+  const results = await readBarcodes(ctx.getImageData(0, 0, source.width, source.height), {
+    formats: [...formats],
     tryHarder: true,
     maxNumberOfSymbols: 8,
   });
+  return results
+    .filter((r) => r.isValid && r.text)
+    .map((r) => {
+      const { topLeft, topRight, bottomLeft, bottomRight } = r.position;
+      const xs = [topLeft.x, topRight.x, bottomLeft.x, bottomRight.x].map((v) => (v - margin) / scale);
+      const ys = [topLeft.y, topRight.y, bottomLeft.y, bottomRight.y].map((v) => (v - margin) / scale);
+      const x = Math.max(0, Math.min(...xs));
+      const y = Math.max(0, Math.min(...ys));
+      return { format: r.format, text: r.text, box: { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y } };
+    });
+}
+
+/** Los QR que son solo un link suelen ser publicidad, no el pasaje. */
+const isTicketCode = (text: string) => !/^https?:\/\/\S+$/i.test(text.trim());
+
+/** Vuelve a dibujar la página (PDF) a otra escala, relativa a la del canvas principal. */
+type Rerender = (factor: number) => Promise<HTMLCanvasElement | null>;
+
+async function findCodes(canvas: HTMLCanvasElement, rerender?: Rerender): Promise<FoundCode[]> {
+  const hits = await scanPage(canvas);
+  const found = () => hits.some((h) => isTicketCode(h.text));
+  // Los códigos densos (Aztec/PDF417) a veces no salen en la primera pasada: pegados al borde, con QR de
+  // publicidad en la misma hoja o con módulos que caen justo entre píxeles. Se reintenta con margen, sin QR
+  // y a otra resolución (en los PDF se vuelve a dibujar la página; en las fotos se achica).
+  if (!found()) hits.push(...(await scanPage(canvas, 48, 1, DENSE_FORMATS)));
+  for (const factor of [2 / 3, 4 / 3]) {
+    if (found()) break;
+    if (rerender) {
+      const alt = await rerender(factor);
+      if (!alt) continue;
+      const k = canvas.width / alt.width;
+      for (const h of await scanPage(alt, 32)) {
+        hits.push({ ...h, box: { x: h.box.x * k, y: h.box.y * k, w: h.box.w * k, h: h.box.h * k } });
+      }
+    } else if (factor < 1) {
+      hits.push(...(await scanPage(canvas, 32, factor)));
+    }
+  }
   const seen = new Set<string>();
   const codes: FoundCode[] = [];
-  for (const r of results) {
-    if (!r.isValid || !r.text || seen.has(r.text)) continue;
-    seen.add(r.text);
-    const { topLeft, topRight, bottomLeft, bottomRight } = r.position;
-    const xs = [topLeft.x, topRight.x, bottomLeft.x, bottomRight.x];
-    const ys = [topLeft.y, topRight.y, bottomLeft.y, bottomRight.y];
-    const box = {
-      x: Math.min(...xs),
-      y: Math.min(...ys),
-      w: Math.max(...xs) - Math.min(...xs),
-      h: Math.max(...ys) - Math.min(...ys),
-    };
-    codes.push({ format: r.format, text: r.text, y: box.y, image: cropCode(canvas, box) });
+  for (const { format, text, box } of hits) {
+    if (seen.has(text)) continue;
+    seen.add(text);
+    codes.push({ format, text, y: box.y, image: cropCode(canvas, box) });
   }
   return codes.sort((a, b) => a.y - b.y);
 }
@@ -125,8 +177,9 @@ async function finishPage(
   canvas: HTMLCanvasElement,
   text: string,
   onProgress?: OcrProgress,
+  rerender?: Rerender,
 ): Promise<ProcessedPage> {
-  const codes = await findCodes(canvas);
+  const codes = await findCodes(canvas, rerender);
   // Escaneos sin texto: se lee con OCR para saber de quién es y las fechas.
   if (!text.trim()) text = await ocr(scaledCanvas(canvas, 2400), onProgress);
   return {
@@ -180,7 +233,16 @@ export async function processFile(file: File, onProgress?: (label: string) => vo
       for (const item of (await page.getTextContent()).items) {
         if ('str' in item) text += item.str + (item.hasEOL ? '\n' : ' ');
       }
-      pages.push(await finishPage(i - 1, canvas, text));
+      const rerender: Rerender = async (factor) => {
+        const alt = page.getViewport({ scale: viewport.scale * factor });
+        if (Math.max(alt.width, alt.height) > MAX_CANVAS_SIDE * 1.4) return null;
+        const altCanvas = document.createElement('canvas');
+        altCanvas.width = Math.ceil(alt.width);
+        altCanvas.height = Math.ceil(alt.height);
+        await page.render({ canvas: altCanvas, viewport: alt }).promise;
+        return altCanvas;
+      };
+      pages.push(await finishPage(i - 1, canvas, text, undefined, rerender));
       page.cleanup();
     }
     return { name: file.name, type: 'pdf', file, pages };
@@ -223,9 +285,43 @@ const slug = (s: string) =>
 /** Guarda un documento: PDF solo con sus páginas (o la imagen), vista previa y el código recortado. */
 /** Sube el archivo completo tal como vino, para poder verlo entero desde cualquiera de sus documentos. */
 export async function uploadSource(tripId: string, file: ProcessedFile): Promise<string> {
-  const path = `${tripId}/docs/originales/${uid()}-${slug(file.name.replace(/\.[^.]+$/, ''))}.pdf`;
-  await api.uploadFile(path, file.file, 'application/pdf');
-  return path;
+  const name = `${tripId}/docs/originales/${uid()}-${slug(file.name.replace(/\.[^.]+$/, ''))}`;
+  if (file.type === 'pdf') {
+    await api.uploadFile(`${name}.pdf`, file.file, 'application/pdf');
+    return `${name}.pdf`;
+  }
+  const prepared = await prepareUpload(file.file);
+  await api.uploadFile(`${name}.${prepared.ext}`, prepared.blob, prepared.mime);
+  return `${name}.${prepared.ext}`;
+}
+
+/**
+ * Cómo dividir un archivo: con IA si está disponible (sube el original para que la función lo lea),
+ * si no con la lectura local. `sourcePath` es el original subido, para reusarlo al guardar.
+ */
+export async function analyzeFile(
+  tripId: string,
+  file: ProcessedFile,
+  ctx: TravelContext,
+  onProgress?: (label: string) => void,
+): Promise<{ drafts: DocDraft[]; via: 'ai' | 'local'; aiError: string | null; sourcePath: string | null }> {
+  let sourcePath: string | null = null;
+  if (aiAllowed()) {
+    try {
+      onProgress?.('Leyendo con IA');
+      sourcePath = await uploadSource(tripId, file);
+      return { drafts: await readTravelWithAI(sourcePath, file, ctx), via: 'ai', aiError: null, sourcePath };
+    } catch (err) {
+      if (getReadMode() === 'ai') throw err;
+      return {
+        drafts: draftsFor(file, ctx),
+        via: 'local',
+        aiError: err instanceof Error ? err.message : String(err),
+        sourcePath,
+      };
+    }
+  }
+  return { drafts: draftsFor(file, ctx), via: 'local', aiError: null, sourcePath };
 }
 
 export async function saveDraft(
@@ -239,7 +335,12 @@ export async function saveDraft(
   const id = uid();
   const base = `${tripId}/docs/${id}`;
   let filePath: string;
-  if (file.type === 'pdf') {
+  // Si el documento es el archivo entero y el original ya está subido, se usa ese (sin duplicarlo).
+  const whole = file.type === 'image' || draft.pages.length === file.pages.length;
+  if (sourcePath && whole) {
+    filePath = sourcePath;
+    sourcePath = null;
+  } else if (file.type === 'pdf') {
     let bytes: Uint8Array | null = null;
     try {
       bytes = await pdfWithPages(file.file, draft.pages);
@@ -309,7 +410,15 @@ export async function rereadDocument(
         ? 'application/pdf'
         : 'image/jpeg';
   const file = await processFile(new File([blob], name, { type }));
-  const drafts = draftsFor(file, ctx);
+  let drafts: DocDraft[] | null = null;
+  if (aiAllowed()) {
+    try {
+      drafts = await readTravelWithAI(doc.file_path, file, ctx);
+    } catch {
+      // sin IA: lectura local
+    }
+  }
+  drafts ??= draftsFor(file, ctx);
   // Si la página tenía los códigos de los dos, es el del mismo código (o el de la misma persona).
   const draft =
     drafts.find((d) => doc.code_text && d.code?.text === doc.code_text) ??
@@ -352,6 +461,8 @@ export function rereadPatch(
     if (keep && doc[key] != null && doc[key] !== '') continue;
     Object.assign(patch, { [key]: value });
   }
+  // Las notas se escriben a mano: la lectura solo completa si no hay ninguna.
+  if (fresh.notes && !doc.notes) patch.notes = fresh.notes;
   const details = keep ? { ...fresh.details, ...doc.details } : { ...doc.details, ...fresh.details };
   if (JSON.stringify(details) !== JSON.stringify(doc.details ?? {})) patch.details = details;
   if (!keep && draft.personId && draft.personId !== doc.person_id) patch.person_id = draft.personId;
