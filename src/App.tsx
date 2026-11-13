@@ -1,4 +1,4 @@
-import type { Session } from '@supabase/supabase-js';
+import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { AddPanel } from './components/AddPanel';
 import { CreateTrip } from './components/CreateTrip';
@@ -9,7 +9,9 @@ import { ReceiptsView, ReceiptViewer } from './components/Receipts';
 import { SettingsView } from './components/Settings';
 import { SettleView } from './components/Settle';
 import { SummaryView } from './components/Summary';
+import { WalletView } from './components/Wallet';
 import { listTrips, loadTripData } from './lib/api';
+import { clearDocFiles, prefetchDocFiles } from './lib/docFiles';
 import { makeCtx, summarize } from './lib/calc';
 import { errorMessage } from './lib/receipts';
 import type { Trip, TripData } from './lib/types';
@@ -17,6 +19,8 @@ import { TABS, TripContext, type EditorTarget, type StatusFilter, type Tab, type
 import { supabase, supabaseConfigured } from './supabase';
 
 const TRIP_KEY = 'viaje.tripId';
+// Copia local de lo último que se cargó: la Wallet (y el resto, solo lectura) anda sin conexión.
+const CACHE_KEY = 'viaje.cache.';
 
 function storageGet(key: string): string | null {
   try {
@@ -31,15 +35,53 @@ function storageSet(key: string, value: string | null) {
     if (value == null) localStorage.removeItem(key);
     else localStorage.setItem(key, value);
   } catch {
-    // sin storage: solo se pierde recordar el último viaje
+    // sin storage (o lleno): solo se pierde la copia local
+  }
+}
+
+function cached<T>(key: string): T | null {
+  try {
+    const raw = storageGet(CACHE_KEY + key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearCache() {
+  void clearDocFiles();
+  try {
+    for (const key of Object.keys(localStorage)) if (key.startsWith(CACHE_KEY)) localStorage.removeItem(key);
+  } catch {
+    // nada que borrar
+  }
+}
+
+/** Sesión guardada por supabase-js en este teléfono. */
+function storedSession(): Session | null {
+  try {
+    const key = Object.keys(localStorage).find((k) => /^sb-.+-auth-token$/.test(k));
+    const parsed = key ? JSON.parse(localStorage.getItem(key) ?? 'null') : null;
+    return parsed?.user ? (parsed as Session) : null;
+  } catch {
+    return null;
   }
 }
 
 function useSession(): Session | null | undefined {
-  const [session, setSession] = useState<Session | null | undefined>(undefined);
+  // Se arranca con la sesión guardada: sin red, renovar un token vencido puede tardar ~30 s en fallar
+  // y la Wallet tiene que abrir igual. Si la sesión ya no vale, supabase-js avisa con SIGNED_OUT.
+  const [session, setSession] = useState<Session | null | undefined>(() => storedSession() ?? undefined);
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (data.session) setSession(data.session);
+      else if (!(error && isAuthRetryableFetchError(error))) setSession(null);
+    });
+    const { data } = supabase.auth.onAuthStateChange((event, s) => {
+      // Sin red el token vencido no se renueva, pero eso no es cerrar sesión: solo se sale con SIGNED_OUT.
+      if (event === 'SIGNED_OUT') clearCache();
+      if (s || event === 'SIGNED_OUT') setSession(s);
+    });
     return () => data.subscription.unsubscribe();
   }, []);
   return session;
@@ -70,8 +112,12 @@ function MissingConfig() {
 const readTab = (): Tab => TABS.find((t) => `#${t.id}` === window.location.hash)?.id ?? 'resumen';
 
 function TripShell({ session }: { session: Session }) {
-  const [trips, setTrips] = useState<Trip[] | null>(null);
-  const [tripId, setTripId] = useState<string | null>(null);
+  // Se arranca con lo guardado en el teléfono (abre al instante, aun sin red) y se actualiza en segundo plano.
+  const [trips, setTrips] = useState<Trip[] | null>(() => cached<Trip[]>('trips'));
+  const [tripId, setTripId] = useState<string | null>(() => {
+    const list = cached<Trip[]>('trips');
+    return list?.find((t) => t.id === storageGet(TRIP_KEY))?.id ?? list?.[0]?.id ?? null;
+  });
   const [data, setData] = useState<TripData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -81,16 +127,19 @@ function TripShell({ session }: { session: Session }) {
   const [editor, setEditor] = useState<{ target: EditorTarget; key: number } | null>(null);
   const [viewer, setViewer] = useState<{ ids: string[]; index: number } | null>(null);
   const [toast, setToast] = useState<{ message: string; kind: 'ok' | 'error' } | null>(null);
+  const [offline, setOffline] = useState(false);
 
   const refreshTrips = useCallback(async (prefer?: string | null) => {
     try {
       const list = await listTrips();
+      storageSet(CACHE_KEY + 'trips', JSON.stringify(list));
       setTrips(list);
       const wanted = prefer ?? storageGet(TRIP_KEY);
       setTripId(list.find((t) => t.id === wanted)?.id ?? list[0]?.id ?? null);
       setLoadError(null);
     } catch (err) {
-      setLoadError(errorMessage(err));
+      if (cached<Trip[]>('trips')?.length) setOffline(true);
+      else setLoadError(errorMessage(err));
     }
   }, []);
 
@@ -104,17 +153,21 @@ function TripShell({ session }: { session: Session }) {
     const request = ++requestRef.current;
     try {
       const fresh = await loadTripData(tripId);
+      storageSet(CACHE_KEY + tripId, JSON.stringify(fresh));
       if (request === requestRef.current) {
         setData(fresh);
         setLoadError(null);
+        setOffline(false);
       }
     } catch (err) {
-      if (request === requestRef.current) setLoadError(errorMessage(err));
+      if (request !== requestRef.current) return;
+      if (cached<TripData>(tripId)) setOffline(true);
+      else setLoadError(errorMessage(err));
     }
   }, [tripId]);
 
   useEffect(() => {
-    setData(null);
+    setData(tripId ? cached<TripData>(tripId) : null);
     if (!tripId) return;
     storageSet(TRIP_KEY, tripId);
     void reload();
@@ -135,17 +188,31 @@ function TripShell({ session }: { session: Session }) {
         { event: '*', schema: 'public', table: 'expenses', filter: `trip_id=eq.${tripId}` },
         schedule,
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'documents', filter: `trip_id=eq.${tripId}` },
+        schedule,
+      )
       .subscribe();
     const onVisible = () => {
       if (document.visibilityState === 'visible') schedule();
     };
     document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('online', schedule);
     return () => {
+      window.removeEventListener('online', schedule);
       clearTimeout(timer);
       void supabase.removeChannel(channel);
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [tripId, reload]);
+
+  // Los documentos originales de la Wallet quedan guardados en el teléfono para abrirlos sin conexión.
+  useEffect(() => {
+    if (!data || offline) return;
+    const paths = data.documents.flatMap((d) => [d.file_path, d.source_path]).filter((p): p is string => Boolean(p));
+    void prefetchDocFiles(data.trip.id, [...new Set(paths)]);
+  }, [data, offline]);
 
   useEffect(() => {
     const onHash = () => setTab(readTab());
@@ -281,6 +348,7 @@ function TripShell({ session }: { session: Session }) {
   const drafts = state.summary.drafts.length;
   const views: Record<Tab, ReactElement> = {
     resumen: <SummaryView />,
+    wallet: <WalletView />,
     gastos: <ExpenseList />,
     cargar: <AddPanel />,
     facturas: <ReceiptsView />,
@@ -328,10 +396,16 @@ function TripShell({ session }: { session: Session }) {
               </button>
             ))}
           </nav>
+          {offline && (
+            <div className="notice warning" style={{ marginBottom: 12 }}>
+              Sin conexión: estás viendo lo último guardado en este teléfono. Los cambios se van a poder hacer cuando
+              vuelva la conexión.
+            </div>
+          )}
         </div>
         <main key={`${tab}-${navKey}`}>{views[tab]}</main>
       </div>
-      {tab !== 'cargar' && !editor && !viewer && (
+      {tab !== 'cargar' && tab !== 'wallet' && !editor && !viewer && (
         <label className="fab" title="Sacar foto de un ticket">
           📷 Ticket
           <input

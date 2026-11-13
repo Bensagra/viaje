@@ -121,7 +121,7 @@ function PeopleSection() {
         <h3>Personas</h3>
         <p className="hint">
           Cada uno entra con su email. Si tu amigo crea su cuenta con el email que figura acá, ve y edita este mismo
-          viaje.
+          viaje. El nombre en pasajes (apellido y nombre como en el pasaporte) sirve para saber de quién es cada pase.
         </p>
       </div>
       {ctx.people.map((p, i) => (
@@ -136,12 +136,13 @@ function PersonRow({ person, index }: { person: Person; index: 0 | 1 }) {
   const { busy, act } = useAction();
   const [name, setName] = useState(person.name);
   const [email, setEmail] = useState(person.email ?? '');
-  const dirty = name !== person.name || email !== (person.email ?? '');
+  const [docName, setDocName] = useState(person.doc_name ?? '');
+  const dirty = name !== person.name || email !== (person.email ?? '') || docName !== (person.doc_name ?? '');
   const isMe = person.email?.toLowerCase() === userEmail.toLowerCase();
 
   return (
     <form
-      className="grid3"
+      className="grid2"
       style={{ alignItems: 'end' }}
       onSubmit={(e) => {
         e.preventDefault();
@@ -149,6 +150,7 @@ function PersonRow({ person, index }: { person: Person; index: 0 | 1 }) {
           await api.updatePerson(person.id, {
             name: name.trim() || person.name,
             email: email.trim().toLowerCase() || null,
+            doc_name: docName.trim().toUpperCase() || null,
           });
           await reload();
         }, 'Guardado');
@@ -163,6 +165,10 @@ function PersonRow({ person, index }: { person: Person; index: 0 | 1 }) {
       <label className="field">
         <span className="label">Email</span>
         <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="para darle acceso" />
+      </label>
+      <label className="field">
+        <span className="label">Nombre en pasajes</span>
+        <input value={docName} onChange={(e) => setDocName(e.target.value)} placeholder="PEREZ SANTIAGO" />
       </label>
       <div>
         <button disabled={!dirty || busy}>Guardar</button>

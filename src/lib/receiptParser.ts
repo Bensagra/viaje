@@ -288,8 +288,16 @@ function makeISO(y: number, m: number, d: number): string | null {
   return isValidISODate(iso) ? iso : null;
 }
 
-export function findDate(text: string, opts: ParseOptions = {}): string | null {
-  const found: { iso: string; alt: string | null; index: number }[] = [];
+export interface DateHit {
+  iso: string;
+  /** Interpretación alternativa (mm/dd) cuando dd/mm es ambiguo. */
+  alt: string | null;
+  index: number;
+}
+
+/** Todas las fechas del texto, en orden de aparición. */
+export function listDates(text: string): DateHit[] {
+  const found: DateHit[] = [];
   const push = (iso: string | null, index: number, alt: string | null = null) => {
     if (iso || alt) found.push({ iso: (iso ?? alt)!, alt: iso ? alt : null, index });
   };
@@ -313,8 +321,15 @@ export function findDate(text: string, opts: ParseOptions = {}): string | null {
   for (const m of text.matchAll(new RegExp(`\\b${MONTH_RE}\\s+(\\d{1,2}),?\\s+(\\d{4})\\b`, 'gi'))) {
     push(makeISO(+m[3], MONTHS[m[1].toLowerCase()], +m[2]), m.index);
   }
-  found.sort((a, b) => a.index - b.index);
+  return found.sort((a, b) => a.index - b.index);
+}
 
+/** La primera fecha que cae en el rango del viaje (o en el último año si no hay fechas de viaje). */
+export function findDate(text: string, opts: ParseOptions = {}): string | null {
+  return pickDate(listDates(text), opts);
+}
+
+export function pickDate(found: DateHit[], opts: ParseOptions = {}): string | null {
   const today = opts.today ?? todayISO();
   const ranges: [string, string][] = [];
   if (opts.tripStart || opts.tripEnd) {
@@ -337,7 +352,7 @@ export function findDate(text: string, opts: ParseOptions = {}): string | null {
 const MERCHANT_SKIP =
   /^(ticket|tique|factura|fact\.|comprobante|original|duplicado|copia|recibo|receipt|invoice|documento|doc\.|no\s+v[aá]lido|bienvenid|welcome|gracias|thank|c\.?u\.?i\.?t|rut\b|nif\b|cif\b|rfc\b|iva\b|i\.v\.a|resp(?:onsable)?\.?\s+insc|monotrib|consumidor|tel|fecha|date|hora|time|caja|cajero|cashier|mesa|table|mozo|www\.|http|sucursal|direcc|domicilio|address|venta|sale\b|cliente|punto\s+de\s+venta|nro|n[°º]|ing\.?\s*br|inicio\s+de\s+act|c[oó]digo|cod\.|cuenta)/i;
 
-function tidyName(s: string): string {
+export function tidyName(s: string): string {
   let t = s
     .replace(/\s{2,}/g, ' ')
     .replace(/^[^\p{L}\d]+|[^\p{L}\d.)]+$/gu, '')

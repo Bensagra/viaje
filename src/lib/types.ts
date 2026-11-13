@@ -19,6 +19,8 @@ export interface Person {
   slot: 1 | 2;
   name: string;
   email: string | null;
+  /** Nombre como figura en pasajes y reservas (ej: "PEREZ/SANTIAGO"). */
+  doc_name?: string | null;
 }
 
 export interface Card {
@@ -98,4 +100,45 @@ export interface TripData {
   cards: Card[];
   rates: FxRate[];
   expenses: Expense[];
+  documents: TravelDoc[];
+  /** Error al leer la Wallet (por ejemplo, falta correr su migración). */
+  documentsError?: string | null;
 }
+
+export type DocKind = 'flight' | 'hotel' | 'train' | 'bus' | 'car' | 'event' | 'other';
+
+/** Pase de avión, reserva de hotel u otro documento del viaje (la "Wallet"). */
+export interface TravelDoc {
+  id: string;
+  trip_id: string;
+  /** null = es de los dos. */
+  person_id: string | null;
+  kind: DocKind;
+  title: string;
+  provider: string | null;
+  date: string | null;
+  end_date: string | null;
+  time: string | null;
+  origin: string | null;
+  destination: string | null;
+  number: string | null;
+  seat: string | null;
+  reference: string | null;
+  passenger: string | null;
+  details: Record<string, string>;
+  code_format: string | null;
+  code_text: string | null;
+  /** PNG en data URL: se ve aunque no haya conexión. */
+  code_image: string | null;
+  file_path: string | null;
+  preview_path: string | null;
+  /** Archivo completo como se subió, si se dividió en varios documentos (si no, es file_path). */
+  source_path: string | null;
+  source_name: string | null;
+  pages: number[] | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type DocFields = Omit<TravelDoc, 'id' | 'trip_id' | 'created_at' | 'updated_at'>;

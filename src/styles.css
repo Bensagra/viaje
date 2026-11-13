@@ -218,6 +218,7 @@ button.small {
 }
 
 button.link {
+  justify-self: start;
   border: none;
   background: none;
   color: var(--accent);
@@ -915,4 +916,312 @@ dl.details dd {
 .toast.error {
   background: var(--critical);
   color: #fff;
+}
+
+/* --- wallet --- */
+
+.day-title {
+  margin: 4px 0 0;
+  font-size: 15px;
+  color: var(--text-2);
+}
+
+.day-title.today {
+  color: var(--text);
+}
+
+.pass {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 16px;
+  padding: 14px 16px;
+  color: #fff;
+  min-height: 0;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  background: linear-gradient(135deg, #334155, #64748b);
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+.pass.flight {
+  background: linear-gradient(135deg, #1e3a8a, #2563eb);
+}
+.pass.hotel {
+  background: linear-gradient(135deg, #115e59, #0d9488);
+}
+.pass.train {
+  background: linear-gradient(135deg, #5b21b6, #7c3aed);
+}
+.pass.bus {
+  background: linear-gradient(135deg, #92400e, #c2410c);
+}
+.pass.car {
+  background: linear-gradient(135deg, #1f2937, #4b5563);
+}
+.pass.event {
+  background: linear-gradient(135deg, #9f1239, #e11d48);
+}
+
+.pass.compact {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  font-size: 14px;
+  opacity: 0.85;
+}
+
+.pass.sheet {
+  box-shadow: none;
+  cursor: default;
+}
+
+.pass-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.95;
+}
+
+.pass .who {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #0b0b0b;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.pass-route {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.pass-route.big {
+  font-size: 40px;
+}
+
+.pass-arrow {
+  font-size: 18px;
+}
+
+.pass-title {
+  font-size: 19px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.pass-title.big {
+  font-size: 24px;
+}
+
+.pass-meta {
+  font-size: 13px;
+  opacity: 0.92;
+}
+
+.pass-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px 16px;
+  margin: 8px 0 0;
+}
+
+.pass-fields dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.8;
+}
+
+.pass-fields dd {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* El código siempre sobre blanco, aunque la app esté en modo oscuro: es lo que leen los escáneres. */
+.code-box {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  width: 100%;
+}
+
+.code-box .hint {
+  color: #52514e;
+}
+
+.code-box img,
+.code-zoom img,
+.review-code {
+  image-rendering: pixelated;
+  max-width: 100%;
+  height: auto;
+}
+
+.code-box img {
+  width: min(100%, 340px);
+}
+
+.code-zoom {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: #fff;
+  border: none;
+  border-radius: 0;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 16px;
+  padding: 24px;
+  color: #0b0b0b;
+}
+
+.code-zoom img {
+  width: min(92vw, 92vh);
+  max-height: 80vh;
+  object-fit: contain;
+}
+
+/* Los PDF417 son anchos: con el celular vertical se giran para usar todo el alto. */
+@media (orientation: portrait) {
+  .code-zoom img.wide {
+    width: 88vh;
+    max-width: none;
+    max-height: none;
+    transform: rotate(90deg);
+  }
+}
+
+.code-zoom span {
+  position: absolute;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  left: 16px;
+  right: 16px;
+  text-align: center;
+}
+
+.code-zoom {
+  overflow: hidden;
+}
+
+.review-card {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.review-card.excluded {
+  opacity: 0.5;
+}
+
+.review-media {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+
+.review-thumb,
+.review-code {
+  width: 100%;
+  border-radius: 6px;
+  background: #fff;
+  border: 1px solid var(--border);
+}
+
+@media (max-width: 640px) {
+  .review-card {
+    grid-template-columns: 1fr;
+  }
+  .review-media {
+    grid-template-columns: 110px 1fr;
+    align-items: center;
+  }
+  .pass-route.big {
+    font-size: 32px;
+  }
+}
+
+.btn.disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.pass-main {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+.pass-doc {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 34px;
+  margin-top: 6px;
+  padding: 8px 0 0;
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.original-doc {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  scroll-margin-top: 64px;
+}
+
+.original-doc h3 {
+  margin: 0;
+}
+
+.doc-page {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.doc-page img {
+  width: 100%;
+  display: block;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }

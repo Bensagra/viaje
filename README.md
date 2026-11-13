@@ -14,6 +14,7 @@ App web para dividir los gastos de un viaje entre dos amigos. Se usa desde el ce
 - **Saldar**: registrás los pagos entre ustedes (en cualquier moneda) y el saldo se actualiza.
 - **Facturas**: galería de todos los comprobantes con visor y búsqueda (también en el texto leído).
 - **Exportar** a CSV (Excel/Sheets) y backup JSON. Si uno carga algo, al otro le aparece solo.
+- **Wallet de pases y reservas**: subís los PDFs o capturas de tarjetas de embarque, reservas de hotel, tickets de tren o entradas y quedan como tarjetas tipo Apple Wallet, **ordenadas por día y por persona**, con el QR/Aztec/PDF417 listo para escanear. Si un PDF trae los pases de los dos, **se divide solo**: cada uno queda con un PDF con sus páginas. Funciona **sin conexión** (lo último que abriste queda guardado en el teléfono).
 
 ## Puesta en marcha
 
@@ -22,6 +23,7 @@ App web para dividir los gastos de un viaje entre dos amigos. Se usa desde el ce
 1. Creá un proyecto en [supabase.com](https://supabase.com) (o usá uno existente).
 2. Abrí **SQL Editor**, pegá el contenido de `supabase/migrations/20261031000000_gastos_viaje.sql` y ejecutalo. Crea las tablas, la seguridad (RLS) y el bucket privado `receipts`. Se puede volver a correr sin problema.
    - Con la CLI: `npx supabase link --project-ref <ref>` y `npx supabase db push`.
+   - Para la **Wallet** corré también `supabase/migrations/20261113000000_documentos.sql` (agrega la tabla de pases y reservas; usa el mismo bucket).
 3. **Authentication → Sign In / Providers → Email**: dejalo habilitado. Si no querés depender del mail de confirmación, desactivá "Confirm email" (o creá los dos usuarios desde **Authentication → Users → Add user** con "Auto confirm").
 4. **Authentication → URL Configuration**: poné como Site URL la dirección donde publiques la app (y `http://localhost:5173` para probar).
 
@@ -37,14 +39,24 @@ npm run dev                   # http://localhost:5173 (con --host también desde
 
 1. Creá tu cuenta y el viaje: nombre, moneda base (en la que se calculan los saldos), fechas y **el email de tu amigo**.
 2. Tu amigo crea su cuenta **con ese mismo email** y ve el mismo viaje.
-3. En **Config → Tarjetas** carguen los últimos 4 dígitos de las tarjetas de cada uno. Si pagan con Apple Pay o Google Pay, el ticket muestra el número virtual del celular (Wallet → la tarjeta → "Número de cuenta del dispositivo"): cárguenlo también.
-4. Si van a gastar en otra moneda, cargá la cotización en **Config → Cotizaciones** (o al guardar el primer gasto en esa moneda).
+3. En **Config → Personas** completen el **nombre en pasajes** (apellido y nombre como en el pasaporte, ej. `PEREZ SANTIAGO`): con eso la Wallet reconoce de quién es cada pase aunque en la app usen un apodo.
+4. En **Config → Tarjetas** carguen los últimos 4 dígitos de las tarjetas de cada uno. Si pagan con Apple Pay o Google Pay, el ticket muestra el número virtual del celular (Wallet → la tarjeta → "Número de cuenta del dispositivo"): cárguenlo también.
+5. Si van a gastar en otra moneda, cargá la cotización en **Config → Cotizaciones** (o al guardar el primer gasto en esa moneda).
 
 ### 4. Publicarla (para usarla en el viaje)
 
 Cualquier hosting estático sirve. Con Vercel: importá el repo (o `npx vercel`), build `npm run build`, carpeta `dist`, y las variables `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY`. Agregá esa URL en Supabase → Authentication → URL Configuration.
 
 En el celular, abrila y usá "Agregar a pantalla de inicio" para tenerla como app. El botón **📷 Ticket** abre la cámara desde cualquier pantalla.
+
+## Wallet: cómo divide y ordena
+
+- Cada página se renderiza y se buscan códigos QR, Aztec, PDF417 y Data Matrix. Las tarjetas de embarque traen en el código (estándar IATA) el nombre del pasajero, vuelo, origen, destino, fecha, asiento y código de reserva: con eso se sabe de quién es y se completa el pase.
+- Un código = un pase. Las páginas sin código se suman al documento anterior, salvo que sean de otra persona o de otra reserva. Una reserva de hotel con los dos nombres queda como **Ambos**.
+- Antes de guardar ves la propuesta y podés cambiar la persona, la fecha, unir o separar páginas, o descartar algo.
+- El código se guarda recortado (blanco y negro) junto con los datos, así se ve sin internet; tocándolo se agranda a pantalla completa (los PDF417 se giran para usar todo el alto). Subí el brillo para escanearlo.
+- **PDF de Juli / PDF de Santi** arma un solo PDF con todos los pases y reservas de esa persona.
+- Al pie de cada pase o reserva está el **documento original**: las páginas de ese pase a la vista (con Abrir y Descargar) y, si venía en un PDF compartido, el **archivo completo** tal como se subió. Los documentos quedan guardados en el teléfono, así que también se abren sin conexión.
 
 ## Lectura con IA (opcional)
 
@@ -76,12 +88,15 @@ Para cada persona: **pagó − le corresponde + pagos que envió − pagos que r
 ## Desarrollo
 
 ```bash
-npm test          # tests del lector de tickets, del cálculo de saldos y de formatos
+npm test          # tests del lector de tickets y de pases, del cálculo de saldos y de formatos
 npm run build     # chequeo de tipos + build de producción
 ```
 
 - `src/lib/receiptParser.ts`: heurísticas para sacar total, fecha, moneda y terminación de tarjeta del texto.
 - `src/lib/calc.ts`: conversión de monedas, verificación por tarjeta, saldos y resúmenes.
 - `src/lib/receipts.ts`: flujo subir → leer (IA u OCR) → borrador.
-- `src/components/`: pantallas (Resumen, Gastos, Cargar, Facturas, Saldar, Config) y el editor.
+- `src/lib/travelParser.ts`: código de tarjeta de embarque, de quién es cada pase, tipo de documento y cómo dividir un archivo.
+- `src/lib/travelDocs.ts`: render de páginas, lectura de códigos, recorte y PDF por persona.
+- `src/components/`: pantallas (Resumen, Wallet, Gastos, Cargar, Facturas, Saldar, Config) y los editores.
+- `public/sw.js`: guarda la app en el teléfono para abrirla sin conexión.
 - `supabase/migrations/`: esquema, RLS y storage. `supabase/functions/extract-receipt/`: lectura con IA.

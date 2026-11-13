@@ -2,10 +2,11 @@ import { createContext, useContext } from 'react';
 import type { Ctx, Summary } from './lib/calc';
 import type { ExpenseFields, Person, TripData } from './lib/types';
 
-export type Tab = 'resumen' | 'gastos' | 'cargar' | 'facturas' | 'saldar' | 'config';
+export type Tab = 'resumen' | 'wallet' | 'gastos' | 'cargar' | 'facturas' | 'saldar' | 'config';
 
 export const TABS: { id: Tab; label: string }[] = [
   { id: 'resumen', label: 'Resumen' },
+  { id: 'wallet', label: 'Wallet' },
   { id: 'gastos', label: 'Gastos' },
   { id: 'cargar', label: 'Cargar' },
   { id: 'facturas', label: 'Facturas' },

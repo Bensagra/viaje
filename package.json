@@ -12,10 +12,12 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
+    "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.4.299",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "tesseract.js": "^7.0.0"
+    "tesseract.js": "^7.0.0",
+    "zxing-wasm": "^3.1.6"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",

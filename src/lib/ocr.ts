@@ -24,7 +24,7 @@ function getWorker(): Promise<Tesseract.Worker> {
   return workerPromise;
 }
 
-async function ocr(image: HTMLCanvasElement, onProgress?: OcrProgress): Promise<string> {
+export async function ocr(image: HTMLCanvasElement, onProgress?: OcrProgress): Promise<string> {
   const worker = await getWorker();
   onWorkerProgress = onProgress ?? null;
   try {
@@ -35,7 +35,7 @@ async function ocr(image: HTMLCanvasElement, onProgress?: OcrProgress): Promise<
   }
 }
 
-async function loadPdfjs() {
+export async function loadPdfjs() {
   const [pdfjs, worker] = await Promise.all([import('pdfjs-dist'), import('pdfjs-dist/build/pdf.worker.min.mjs?url')]);
   pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
   return pdfjs;

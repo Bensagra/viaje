@@ -1,6 +1,17 @@
 /** Acceso a Supabase: viajes, personas, tarjetas, cotizaciones, gastos y archivos. */
 import { RECEIPTS_BUCKET, supabase } from '../supabase';
-import type { Attachment, Card, Expense, ExpenseFields, FxRate, Person, Trip, TripData } from './types';
+import type {
+  Attachment,
+  Card,
+  DocFields,
+  Expense,
+  ExpenseFields,
+  FxRate,
+  Person,
+  TravelDoc,
+  Trip,
+  TripData,
+} from './types';
 
 type Result<T> = { data: T | null; error: { message: string } | null };
 
@@ -35,7 +46,7 @@ export async function listTrips(): Promise<Trip[]> {
 }
 
 export async function loadTripData(tripId: string): Promise<TripData> {
-  const [trip, people, cards, rates, expenses] = await Promise.all([
+  const [trip, people, cards, rates, expenses, documents] = await Promise.all([
     supabase.from('trips').select('*').eq('id', tripId).single(),
     supabase.from('people').select('*').eq('trip_id', tripId).order('slot'),
     supabase.from('cards').select('*').eq('trip_id', tripId).order('created_at'),
@@ -46,6 +57,7 @@ export async function loadTripData(tripId: string): Promise<TripData> {
       .eq('trip_id', tripId)
       .order('date', { ascending: false })
       .order('created_at', { ascending: false }),
+    supabase.from('documents').select('*').eq('trip_id', tripId).order('date').order('time'),
   ]);
   const ppl = must<Person[]>(people);
   if (ppl.length !== 2) throw new Error('El viaje tiene que tener exactamente 2 personas.');
@@ -55,6 +67,9 @@ export async function loadTripData(tripId: string): Promise<TripData> {
     cards: must<Card[]>(cards),
     rates: must<FxRate[]>(rates).map((r) => ({ ...r, rate: Number(r.rate) })),
     expenses: must<Expense[]>(expenses).map(normalizeExpense),
+    // Si todavía no se corrió la migración de la Wallet, el resto de la app sigue andando.
+    documents: documents.error ? [] : (documents.data as TravelDoc[]),
+    documentsError: documents.error?.message ?? null,
   };
 }
 
@@ -86,7 +101,10 @@ export async function deleteTrip(data: TripData) {
   check(await supabase.from('trips').delete().eq('id', data.trip.id));
 }
 
-export async function updatePerson(id: string, patch: { name?: string; email?: string | null }) {
+export async function updatePerson(
+  id: string,
+  patch: { name?: string; email?: string | null; doc_name?: string | null },
+) {
   check(await supabase.from('people').update(patch).eq('id', id));
 }
 
@@ -211,4 +229,27 @@ export async function downloadUrl(path: string, fileName: string): Promise<strin
   return must<{ signedUrl: string }>(
     await supabase.storage.from(RECEIPTS_BUCKET).createSignedUrl(path, 600, { download: fileName }),
   ).signedUrl;
+}
+
+export async function insertDocument(id: string, tripId: string, fields: Partial<DocFields>) {
+  check(await supabase.from('documents').insert({ ...fields, id, trip_id: tripId }));
+}
+
+export async function updateDocument(id: string, patch: Partial<DocFields>) {
+  check(await supabase.from('documents').update(patch).eq('id', id));
+}
+
+/** Borra un documento y sus archivos; el original completo solo si ningún otro documento lo usa. */
+export async function deleteDocument(
+  doc: Pick<TravelDoc, 'id' | 'file_path' | 'preview_path' | 'source_path'>,
+  sourceInUse: boolean,
+) {
+  const paths = [doc.file_path, doc.preview_path, sourceInUse ? null : doc.source_path];
+  await removeFiles(paths.filter((p): p is string => Boolean(p)));
+  check(await supabase.from('documents').delete().eq('id', doc.id));
+}
+
+export async function uploadFile(path: string, body: Blob, contentType: string) {
+  const { error } = await supabase.storage.from(RECEIPTS_BUCKET).upload(path, body, { contentType, upsert: false });
+  if (error) throw new Error(`No se pudo subir el archivo: ${error.message}`);
 }
