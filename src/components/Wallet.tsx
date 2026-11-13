@@ -10,7 +10,7 @@ import { useTrip } from '../state';
 import { DocFieldsForm, KIND_META } from './DocFields';
 import { DocImport } from './DocImport';
 import { Icon } from './Icon';
-import { Modal, OwnerTab, Swatch } from './ui';
+import { Barcode, Modal, OwnerTab, Swatch } from './ui';
 
 interface Entry {
   doc: TravelDoc;
@@ -57,12 +57,15 @@ function downloadBlob(name: string, blob: Blob) {
 }
 
 export function WalletView() {
-  const { data, ctx, notify, reload } = useTrip();
+  const { data, ctx, notify, reload, takePendingPass } = useTrip();
   const [who, setWho] = useState<string>('all');
   const [rereading, setRereading] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   // doc: abrir el pase directamente en su documento original
-  const [open, setOpen] = useState<{ id: string; doc: boolean } | null>(null);
+  const [open, setOpen] = useState<{ id: string; doc: boolean } | null>(() => {
+    const id = takePendingPass();
+    return id ? { id, doc: false } : null;
+  });
   const [showPast, setShowPast] = useState(false);
   const [exporting, setExporting] = useState(false);
   const today = todayISO();
@@ -196,10 +199,6 @@ export function WalletView() {
             </button>
           </div>
         </div>
-        <p className="hint">
-          Subí los PDFs o capturas de tarjetas de embarque y reservas: se dividen solos por persona (si un PDF trae los
-          pases de los dos, cada uno queda con el suyo) y se ordenan por día.
-        </p>
       </section>
 
       {rereading && (
@@ -213,7 +212,10 @@ export function WalletView() {
       {visible.length === 0 && !data.documentsError && (
         <section className="card stack-sm">
           <h3>Todavía no hay pases ni reservas</h3>
-          <p className="hint">Tocá “Pases y reservas” y elegí los PDFs de los vuelos y hoteles.</p>
+          <p className="hint">
+            Tocá “Pases y reservas” y elegí los PDFs o capturas de tarjetas de embarque y reservas: se dividen solos por
+            persona (si un PDF trae los pases de los dos, cada uno queda con el suyo) y se ordenan por día.
+          </p>
         </section>
       )}
 
@@ -617,6 +619,7 @@ function PassSheet({
                 </div>
               ))}
           </dl>
+          <Barcode value={doc.reference ?? doc.number ?? doc.id} className="band thin" />
         </div>
 
         {doc.code_image ? (

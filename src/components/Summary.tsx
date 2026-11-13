@@ -3,6 +3,7 @@ import { debtOf } from '../lib/calc';
 import { daysInclusive, fmtDay, fmtMoney, fmtPct, fmtRate, todayISO } from '../lib/format';
 import type { Trip } from '../lib/types';
 import { useTrip } from '../state';
+import { KIND_META } from './DocFields';
 import { Icon } from './Icon';
 import { Barcode, ExpenseTagRow, Legend, OwnerTab, SplitBar, Swatch } from './ui';
 
@@ -60,7 +61,12 @@ export function SummaryView() {
         label={`${p1.name} ${fmtPct(a.paid / (paidTotal || 1))} · ${p2.name} ${fmtPct(b.paid / (paidTotal || 1))}`}
       />,
     ],
-    ['Le corresponde (su parte)', money(a.consumed), money(b.consumed), money(Math.abs(a.consumed - b.consumed))],
+    [
+      'Le corresponde (su parte)',
+      money(a.consumed),
+      money(b.consumed),
+      Math.abs(a.consumed - b.consumed) >= 0.005 ? `${money(Math.abs(a.consumed - b.consumed))} de diferencia` : '',
+    ],
     ['Pagó − le corresponde', signed(a.paid - a.consumed), signed(b.paid - b.consumed), ''],
     ['Pagos enviados al otro', money(a.sent), money(b.sent), ''],
     ['Pagos recibidos del otro', money(a.received), money(b.received), ''],
@@ -138,6 +144,8 @@ export function SummaryView() {
         </dl>
       </section>
 
+      <TodayPasses />
+
       <Alerts />
 
       {latest.length > 0 && (
@@ -160,7 +168,7 @@ export function SummaryView() {
         <section className="card">
           <h3>Quién puso qué</h3>
           <div className="table-wrap">
-            <table>
+            <table className="stacked">
               <thead>
                 <tr>
                   <th />
@@ -180,10 +188,14 @@ export function SummaryView() {
               <tbody>
                 {comparison.map(([label, v1, v2, diff]) => (
                   <tr key={label}>
-                    <td>{label}</td>
-                    <td className="num">{v1}</td>
-                    <td className="num">{v2}</td>
-                    <td style={{ minWidth: 120 }}>{diff}</td>
+                    <th scope="row">{label}</th>
+                    <td className="num" data-label={p1.name}>
+                      {v1}
+                    </td>
+                    <td className="num" data-label={p2.name}>
+                      {v2}
+                    </td>
+                    <td className="diff">{diff}</td>
                   </tr>
                 ))}
               </tbody>
@@ -257,7 +269,7 @@ export function SummaryView() {
                   <th className="num">Total</th>
                   <th className="num hide-sm">{p1.name}</th>
                   <th className="num hide-sm">{p2.name}</th>
-                  <th className="num">Acumulado</th>
+                  <th className="num hide-sm">Acumulado</th>
                 </tr>
               </thead>
               <tbody>
@@ -274,7 +286,7 @@ export function SummaryView() {
                     <td className="num">{d.total ? money(d.total) : <span className="muted">—</span>}</td>
                     <td className="num hide-sm">{money(d.paid[0])}</td>
                     <td className="num hide-sm">{money(d.paid[1])}</td>
-                    <td className="num">{money(d.cumulative)}</td>
+                    <td className="num hide-sm">{money(d.cumulative)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -292,7 +304,7 @@ export function SummaryView() {
         <section className="card">
           <h3>Por moneda</h3>
           <div className="table-wrap">
-            <table>
+            <table className="stacked">
               <thead>
                 <tr>
                   <th>Moneda</th>
@@ -310,13 +322,17 @@ export function SummaryView() {
                   const rate = c.key === base ? 1 : ctx.rates.get(c.key);
                   return (
                     <tr key={c.key}>
-                      <td>{c.key}</td>
-                      <td className="num">{fmtMoney(c.total, c.key)}</td>
+                      <th scope="row">{c.key}</th>
+                      <td className="num" data-label="Gastos">
+                        {fmtMoney(c.total, c.key)}
+                      </td>
                       <td className="num hide-sm">{fmtMoney(c.paid[0], c.key)}</td>
                       <td className="num hide-sm">{fmtMoney(c.paid[1], c.key)}</td>
-                      <td>{d ? `${d.from.name} debe ${fmtMoney(d.amount, c.key)}` : 'A mano'}</td>
+                      <td className="wide" data-label="Saldo">
+                        {d ? `${d.from.name} debe ${fmtMoney(d.amount, c.key)}` : 'A mano'}
+                      </td>
                       <td className="num hide-sm">{rate ? fmtRate(rate) : 'falta'}</td>
-                      <td className="num">
+                      <td className="num" data-label={`En ${base}`}>
                         {c.totalBase == null ? (
                           <span className="badge warning">falta cotización</span>
                         ) : (
@@ -389,6 +405,67 @@ export function SummaryView() {
         </section>
       )}
     </div>
+  );
+}
+
+/** Lo que toca hoy en la Wallet (o lo próximo que viene): se abre con un toque. */
+function TodayPasses() {
+  const { data, goTo, openPass } = useTrip();
+  const today = todayISO();
+  const entriesOn = (day: string) => {
+    const main = data.documents
+      .filter((d) => d.date === day)
+      .sort((a, b) => (a.time ?? '99:99').localeCompare(b.time ?? '99:99'))
+      .map((doc) => ({ doc, role: 'main' as const }));
+    const checkouts = data.documents
+      .filter((d) => d.kind === 'hotel' && d.end_date === day && d.date !== day)
+      .map((doc) => ({ doc, role: 'checkout' as const }));
+    return [...checkouts, ...main];
+  };
+  let day = today;
+  let entries = entriesOn(today);
+  if (!entries.length) {
+    const next = data.documents
+      .flatMap((d) => [d.date, d.kind === 'hotel' ? d.end_date : null])
+      .filter((x): x is string => Boolean(x) && x! > today)
+      .sort()[0];
+    if (!next) return null;
+    day = next;
+    entries = entriesOn(next);
+  }
+  if (!entries.length) return null;
+  const diff = daysInclusive(today, day) - 1;
+  const label =
+    diff === 0 ? 'Hoy en la Wallet' : diff === 1 ? 'Mañana en la Wallet' : `Próximo · ${fmtDay(day)} · en ${diff} días`;
+  return (
+    <section className="today">
+      <div className="section-head">
+        <h3>{label}</h3>
+        <button className="link" onClick={() => goTo('wallet')}>
+          Ver la Wallet
+        </button>
+      </div>
+      <div className="tagrows">
+        {entries.slice(0, 4).map(({ doc, role }) => (
+          <button key={`${doc.id}-${role}`} className="tag pass compact land" onClick={() => openPass(doc.id)}>
+            <OwnerTab personId={doc.person_id} shared={!doc.person_id} />
+            <span>
+              <Icon name={role === 'checkout' ? 'bed' : KIND_META[doc.kind].icon} size={16} />
+              {role === 'checkout'
+                ? `Check-out · ${doc.provider || doc.title}`
+                : doc.title || KIND_META[doc.kind].label}
+            </span>
+            <span className="pass-meta">
+              {role === 'checkout'
+                ? doc.details?.checkout
+                  ? `hasta las ${doc.details.checkout}`
+                  : ''
+                : (doc.time ?? '')}
+            </span>
+          </button>
+        ))}
+      </div>
+    </section>
   );
 }
 

@@ -38,6 +38,9 @@ export interface TripState {
   queueFiles: (files: File[]) => void;
   takePendingFiles: () => File[];
   pendingTick: number;
+  /** Abrir un pase de la Wallet desde otra pestaña (el Resumen muestra el de hoy). */
+  openPass: (docId: string) => void;
+  takePendingPass: () => string | null;
   trips: { id: string; name: string }[];
   /** null = abrir el formulario de viaje nuevo. */
   switchTrip: (tripId: string | null) => void;

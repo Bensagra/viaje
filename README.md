@@ -99,6 +99,12 @@ Costo aproximado: 1-2 centavos de dólar por ticket y 5-15 centavos por PDF de p
 
 Para cada persona: **pagó − le corresponde + pagos que envió − pagos que recibió**. Si da positivo, el otro le debe eso. "Le corresponde" es su parte de cada gasto según la división. Los pendientes y los gastos sin cotización no entran (la app avisa cuántos hay).
 
+**Pre-viaje:** todo gasto anterior a la fecha de ida (pasajes, hoteles pagados antes) cuenta en el total y en el saldo, pero no en el **promedio por día** ni en la tabla por día, que se calculan solo con los días de viaje transcurridos. Para eso hace falta cargar la ida en Config → Viaje.
+
+## Diseño
+
+La interfaz sigue el mundo visual "etiqueta de valija" (lengüeta de color por dueño, stock mate, banda de código): las decisiones están en `DESIGN.md` y la verdad del producto en `PRODUCT.md`; cualquier pantalla nueva arranca de ahí. Las fuentes (Barlow) se sirven desde la propia app, sin CDN, para que la Wallet abra sin conexión; los íconos son SVG propios (`src/components/Icon.tsx`).
+
 ## Desarrollo
 
 ```bash

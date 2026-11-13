@@ -292,6 +292,21 @@ function TripShell({ session }: { session: Session }) {
     return files;
   }, []);
 
+  // Pase elegido desde el Resumen: la Wallet lo abre al montarse.
+  const pendingPass = useRef<string | null>(null);
+  const openPass = useCallback(
+    (docId: string) => {
+      pendingPass.current = docId;
+      goTo('wallet');
+    },
+    [goTo],
+  );
+  const takePendingPass = useCallback(() => {
+    const id = pendingPass.current;
+    pendingPass.current = null;
+    return id;
+  }, []);
+
   const userEmail = session.user.email ?? '';
   const state = useMemo<TripState | null>(() => {
     if (!data) return null;
@@ -319,6 +334,8 @@ function TripShell({ session }: { session: Session }) {
       queueFiles,
       takePendingFiles,
       pendingTick,
+      openPass,
+      takePendingPass,
       trips: (trips ?? []).map((t) => ({ id: t.id, name: t.name })),
       switchTrip,
       onTripDeleted,
@@ -334,6 +351,8 @@ function TripShell({ session }: { session: Session }) {
     queueFiles,
     takePendingFiles,
     pendingTick,
+    openPass,
+    takePendingPass,
     trips,
     switchTrip,
     onTripDeleted,
@@ -437,7 +456,7 @@ function TripShell({ session }: { session: Session }) {
         </header>
         <main key={`${tab}-${navKey}`}>{views[tab]}</main>
       </div>
-      {tab !== 'cargar' && tab !== 'wallet' && !editor && !viewer && (
+      {tab !== 'cargar' && tab !== 'wallet' && tab !== 'config' && !editor && !viewer && (
         <label className="fab" title="Sacar foto de un ticket">
           <Icon name="camera" />
           Ticket
