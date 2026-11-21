@@ -7,6 +7,8 @@ import type {
   Expense,
   ExpenseFields,
   FxRate,
+  PackingFields,
+  PackingItem,
   Person,
   TravelDoc,
   Trip,
@@ -46,7 +48,7 @@ export async function listTrips(): Promise<Trip[]> {
 }
 
 export async function loadTripData(tripId: string): Promise<TripData> {
-  const [trip, people, cards, rates, expenses, documents] = await Promise.all([
+  const [trip, people, cards, rates, expenses, documents, packing] = await Promise.all([
     supabase.from('trips').select('*').eq('id', tripId).single(),
     supabase.from('people').select('*').eq('trip_id', tripId).order('slot'),
     supabase.from('cards').select('*').eq('trip_id', tripId).order('created_at'),
@@ -58,6 +60,7 @@ export async function loadTripData(tripId: string): Promise<TripData> {
       .order('date', { ascending: false })
       .order('created_at', { ascending: false }),
     supabase.from('documents').select('*').eq('trip_id', tripId).order('date').order('time'),
+    supabase.from('packing_items').select('*').eq('trip_id', tripId).order('created_at'),
   ]);
   const ppl = must<Person[]>(people);
   if (ppl.length !== 2) throw new Error('El viaje tiene que tener exactamente 2 personas.');
@@ -70,7 +73,26 @@ export async function loadTripData(tripId: string): Promise<TripData> {
     // Si todavía no se corrió la migración de la Wallet, el resto de la app sigue andando.
     documents: documents.error ? [] : (documents.data as TravelDoc[]),
     documentsError: documents.error?.message ?? null,
+    // Igual con el equipaje: sin su migración, la sección muestra cómo activarlo.
+    packing: packing.error ? [] : (packing.data as PackingItem[]).map(normalizePacking),
+    packingError: packing.error?.message ?? null,
   };
+}
+
+function normalizePacking(item: PackingItem): PackingItem {
+  return { ...item, quantity: Number(item.quantity) || 1, shared: Boolean(item.shared), packed: Boolean(item.packed) };
+}
+
+export async function insertPackingItems(tripId: string, rows: (PackingFields & { id: string })[]) {
+  check(await supabase.from('packing_items').insert(rows.map((r) => ({ ...r, trip_id: tripId }))));
+}
+
+export async function updatePackingItem(id: string, patch: Partial<PackingFields>) {
+  check(await supabase.from('packing_items').update(patch).eq('id', id));
+}
+
+export async function deletePackingItem(id: string) {
+  check(await supabase.from('packing_items').delete().eq('id', id));
 }
 
 export interface NewTrip {

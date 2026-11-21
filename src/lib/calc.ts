@@ -31,6 +31,41 @@ export function tripDaysElapsed(trip: Pick<Trip, 'start_date' | 'end_date'>, tod
   return daysInclusive(trip.start_date, end);
 }
 
+const shortDay = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+
+/** La línea de la barra de arriba: cuánto falta para la ida, en qué día del viaje van o cuándo terminó. */
+export function tripMoment(trip: Pick<Trip, 'start_date' | 'end_date'>, today: string): string | null {
+  const { start_date: start, end_date: end } = trip;
+  if (!start) return null;
+  const range = end ? `${shortDay(start)} → ${shortDay(end)}` : `desde el ${shortDay(start)}`;
+  if (today < start) {
+    const n = daysInclusive(today, start) - 1;
+    return `${n === 1 ? 'Salen mañana' : `Faltan ${n} días`} · ${range}`;
+  }
+  if (!end) return `Día ${daysInclusive(start, today)} · ${range}`;
+  if (today <= end) return `Día ${daysInclusive(start, today)} de ${daysInclusive(start, end)} · ${range}`;
+  return `Terminó el ${shortDay(end)}`;
+}
+
+/**
+ * Fechas del viaje sacadas de la Wallet (la primera y la última de los pases y reservas), para proponerlas
+ * cuando el viaje todavía no tiene. null si ya están las dos o no hay de dónde sacarlas.
+ */
+export function suggestTripDates(
+  trip: Pick<Trip, 'start_date' | 'end_date'>,
+  docs: { date: string | null; end_date: string | null }[],
+): { start_date: string; end_date: string } | null {
+  if (trip.start_date && trip.end_date) return null;
+  const dates = docs
+    .flatMap((d) => [d.date, d.end_date])
+    .filter((d): d is string => Boolean(d))
+    .sort();
+  if (!dates.length) return null;
+  const start = trip.start_date ?? dates[0];
+  const end = trip.end_date ?? dates[dates.length - 1];
+  return end >= start ? { start_date: start, end_date: end } : null;
+}
+
 export function makeCtx(data: Pick<TripData, 'trip' | 'people' | 'cards' | 'rates'>): Ctx {
   return {
     trip: data.trip,

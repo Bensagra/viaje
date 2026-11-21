@@ -103,7 +103,37 @@ export interface TripData {
   documents: TravelDoc[];
   /** Error al leer la Wallet (por ejemplo, falta correr su migración). */
   documentsError?: string | null;
+  /** Lo que lleva cada uno (y lo de los dos). */
+  packing: PackingItem[];
+  /** Error al leer el equipaje (por ejemplo, falta correr su migración). */
+  packingError?: string | null;
 }
+
+/** Algo que llevan al viaje: qué es, de qué tipo, dónde está y si ya está guardado. */
+export interface PackingItem {
+  id: string;
+  trip_id: string;
+  /** Quién lo lleva. En lo compartido puede ser null: todavía no decidieron. */
+  person_id: string | null;
+  /** Es para los dos: aparece en la lista de cada uno y en la de los dos. */
+  shared: boolean;
+  name: string;
+  category: string;
+  /** Dónde está: Valija, Mochila, Riñonera, Puesto… */
+  location: string | null;
+  quantity: number;
+  /** Ya está guardado en su lugar. */
+  packed: boolean;
+  notes: string | null;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type PackingFields = Pick<
+  PackingItem,
+  'person_id' | 'shared' | 'name' | 'category' | 'location' | 'quantity' | 'packed' | 'notes'
+>;
 
 export type DocKind = 'flight' | 'hotel' | 'train' | 'bus' | 'car' | 'event' | 'other';
 

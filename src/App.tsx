@@ -6,6 +6,7 @@ import { ExpenseEditor } from './components/ExpenseEditor';
 import { ExpenseList } from './components/ExpenseList';
 import { Icon, type IconName } from './components/Icon';
 import { Login } from './components/Login';
+import { PackingView } from './components/Packing';
 import { ReceiptsView, ReceiptViewer } from './components/Receipts';
 import { SettingsView } from './components/Settings';
 import { SettleView } from './components/Settle';
@@ -13,7 +14,8 @@ import { SummaryView } from './components/Summary';
 import { WalletView } from './components/Wallet';
 import { listTrips, loadTripData } from './lib/api';
 import { clearDocFiles, prefetchDocFiles } from './lib/docFiles';
-import { makeCtx, summarize } from './lib/calc';
+import { makeCtx, summarize, tripMoment } from './lib/calc';
+import { todayISO } from './lib/format';
 import { errorMessage } from './lib/receipts';
 import type { Trip, TripData } from './lib/types';
 import { TABS, TripContext, type EditorTarget, type StatusFilter, type Tab, type TripState } from './state';
@@ -26,6 +28,7 @@ const CACHE_KEY = 'viaje.cache.';
 const TAB_ICONS: Record<Tab, IconName> = {
   resumen: 'coins',
   wallet: 'wallet',
+  equipaje: 'suitcase',
   gastos: 'receipt',
   cargar: 'camera',
   facturas: 'image',
@@ -57,6 +60,12 @@ function cached<T>(key: string): T | null {
   } catch {
     return null;
   }
+}
+
+/** Lo guardado por una versión anterior puede no traer las listas nuevas. */
+function cachedTrip(tripId: string): TripData | null {
+  const d = cached<TripData>(tripId);
+  return d ? { ...d, documents: d.documents ?? [], packing: d.packing ?? [] } : null;
 }
 
 function clearCache() {
@@ -159,6 +168,18 @@ function TripShell({ session }: { session: Session }) {
   }, [refreshTrips]);
 
   const requestRef = useRef(0);
+  // Cambios hechos acá que el servidor todavía puede no traer (tildar varias cosas seguidas):
+  // se vuelven a aplicar sobre cada recarga hasta que llega una pedida después de guardarlos.
+  const pendingOps = useRef(new Set<{ apply: (d: TripData) => TripData; doneAt: number | null }>());
+  const withPending = useCallback((fresh: TripData, request: number) => {
+    let out = fresh;
+    for (const op of pendingOps.current) {
+      if (op.doneAt !== null && op.doneAt < request) pendingOps.current.delete(op);
+      else out = op.apply(out);
+    }
+    return out;
+  }, []);
+
   const reload = useCallback(async () => {
     if (!tripId) return;
     const request = ++requestRef.current;
@@ -166,19 +187,37 @@ function TripShell({ session }: { session: Session }) {
       const fresh = await loadTripData(tripId);
       storageSet(CACHE_KEY + tripId, JSON.stringify(fresh));
       if (request === requestRef.current) {
-        setData(fresh);
+        setData(withPending(fresh, request));
         setLoadError(null);
         setOffline(false);
       }
     } catch (err) {
       if (request !== requestRef.current) return;
-      if (cached<TripData>(tripId)) setOffline(true);
+      if (cachedTrip(tripId)) setOffline(true);
       else setLoadError(errorMessage(err));
     }
-  }, [tripId]);
+  }, [tripId, withPending]);
+
+  const mutate = useCallback(
+    async (apply: (d: TripData) => TripData, run: () => Promise<void>) => {
+      const op = { apply, doneAt: null as number | null };
+      pendingOps.current.add(op);
+      setData((d) => (d ? apply(d) : d));
+      try {
+        await run();
+        op.doneAt = requestRef.current;
+      } catch (err) {
+        pendingOps.current.delete(op);
+        void reload();
+        throw err;
+      }
+    },
+    [reload],
+  );
 
   useEffect(() => {
-    setData(tripId ? cached<TripData>(tripId) : null);
+    pendingOps.current.clear();
+    setData(tripId ? cachedTrip(tripId) : null);
     if (!tripId) return;
     storageSet(TRIP_KEY, tripId);
     void reload();
@@ -202,6 +241,11 @@ function TripShell({ session }: { session: Session }) {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'documents', filter: `trip_id=eq.${tripId}` },
+        schedule,
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'packing_items', filter: `trip_id=eq.${tripId}` },
         schedule,
       )
       .subscribe();
@@ -326,6 +370,7 @@ function TripShell({ session }: { session: Session }) {
       userEmail,
       defaultCurrency: latest?.currency ?? data.trip.base_currency,
       reload,
+      mutate,
       openEditor: (target) => setEditor({ target, key: Date.now() }),
       openViewer: (ids, index) => setViewer({ ids, index }),
       goTo,
@@ -345,6 +390,7 @@ function TripShell({ session }: { session: Session }) {
     userEmail,
     session.user.id,
     reload,
+    mutate,
     goTo,
     listFilter,
     notify,
@@ -391,9 +437,11 @@ function TripShell({ session }: { session: Session }) {
   if (!state) return <div className="center muted">Cargando el viaje…</div>;
 
   const drafts = state.summary.drafts.length;
+  const moment = tripMoment(state.data.trip, todayISO());
   const views: Record<Tab, ReactElement> = {
     resumen: <SummaryView />,
     wallet: <WalletView />,
+    equipaje: <PackingView />,
     gastos: <ExpenseList />,
     cargar: <AddPanel />,
     facturas: <ReceiptsView />,
@@ -426,6 +474,7 @@ function TripShell({ session }: { session: Session }) {
               ) : (
                 <h1 className="title">{state.data.trip.name}</h1>
               )}
+              {moment && <span className="topbar-moment">{moment}</span>}
             </div>
             <button className="icon quiet" onClick={() => void reload()} title="Actualizar" aria-label="Actualizar">
               <Icon name="refresh" />
@@ -456,7 +505,7 @@ function TripShell({ session }: { session: Session }) {
         </header>
         <main key={`${tab}-${navKey}`}>{views[tab]}</main>
       </div>
-      {tab !== 'cargar' && tab !== 'wallet' && tab !== 'config' && !editor && !viewer && (
+      {tab !== 'cargar' && tab !== 'wallet' && tab !== 'equipaje' && tab !== 'config' && !editor && !viewer && (
         <label className="fab" title="Sacar foto de un ticket">
           <Icon name="camera" />
           Ticket

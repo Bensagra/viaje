@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { balanceDelta, debtOf, makeCtx, summarize, verify } from './calc';
+import { balanceDelta, debtOf, makeCtx, suggestTripDates, summarize, tripMoment, verify } from './calc';
 import type { Expense, Person } from './types';
 
 const juan: Person = { id: 'p1', trip_id: 't', slot: 1, name: 'Juan', email: 'juan@x.com' };
@@ -184,5 +184,44 @@ describe('balanceDelta', () => {
   it('muestra el efecto de un gasto en el saldo de la persona 1', () => {
     expect(balanceDelta({ amount: 80, paid_by: 'p2', p1_share: 50 }, ctx)).toBe(-40);
     expect(balanceDelta({ amount: 80, paid_by: 'p1', p1_share: 25 }, ctx)).toBe(60);
+  });
+});
+
+describe('tripMoment', () => {
+  const trip = { start_date: '2027-01-15', end_date: '2027-02-04' };
+  it('antes de la ida cuenta los días que faltan', () => {
+    expect(tripMoment(trip, '2026-11-21')).toBe('Faltan 55 días · 15/01 → 04/02');
+    expect(tripMoment(trip, '2027-01-14')).toBe('Salen mañana · 15/01 → 04/02');
+  });
+  it('durante el viaje dice en qué día van', () => {
+    expect(tripMoment(trip, '2027-01-15')).toBe('Día 1 de 21 · 15/01 → 04/02');
+    expect(tripMoment(trip, '2027-02-04')).toBe('Día 21 de 21 · 15/01 → 04/02');
+  });
+  it('después, cuándo terminó; sin fecha de ida, nada', () => {
+    expect(tripMoment(trip, '2027-02-10')).toBe('Terminó el 04/02');
+    expect(tripMoment({ start_date: null, end_date: null }, '2027-01-20')).toBeNull();
+  });
+});
+
+describe('suggestTripDates', () => {
+  const docs = [
+    { date: '2027-01-20', end_date: '2027-01-23' },
+    { date: '2027-01-15', end_date: null },
+    { date: null, end_date: null },
+    { date: '2027-02-04', end_date: null },
+  ];
+  it('propone la primera y la última fecha de la Wallet', () => {
+    expect(suggestTripDates({ start_date: null, end_date: null }, docs)).toEqual({
+      start_date: '2027-01-15',
+      end_date: '2027-02-04',
+    });
+  });
+  it('respeta la que ya está y no propone nada si están las dos', () => {
+    expect(suggestTripDates({ start_date: '2027-01-14', end_date: null }, docs)).toEqual({
+      start_date: '2027-01-14',
+      end_date: '2027-02-04',
+    });
+    expect(suggestTripDates({ start_date: '2027-01-14', end_date: '2027-02-05' }, docs)).toBeNull();
+    expect(suggestTripDates({ start_date: null, end_date: null }, [])).toBeNull();
   });
 });

@@ -10,11 +10,12 @@ App web para dividir los gastos de un viaje entre dos amigos. Se usa desde el ce
 - Cada comprobante queda **pendiente** hasta que lo revisás; los pendientes no cuentan en el balance.
 - **División por gasto**: 50/50, todo de uno, o el porcentaje/monto que quieran.
 - **Multimoneda**: cotización por moneda para todo el viaje, o una propia por gasto (la del resumen de la tarjeta, por ejemplo).
-- **Resumen**: quién le debe a quién, tabla comparativa (quién puso más plata y la diferencia), y totales por categoría, por día, por moneda y por tarjeta. Presupuesto con lo que queda por día.
+- **Resumen**: quién le debe a quién, los dos frente a frente (cuánto puso cada uno y cuánto le toca), en qué se fue la plata (barras por categoría), el ritmo del viaje (una columna por día con el promedio) y lo que hay que revisar en una sola lista. Las tablas completas (por moneda, por tarjeta) quedan plegadas a un toque. Presupuesto con lo que queda por día.
 - **Saldar**: registrás los pagos entre ustedes (en cualquier moneda) y el saldo se actualiza.
 - **Facturas**: galería de todos los comprobantes con visor y búsqueda (también en el texto leído).
 - **Exportar** a CSV (Excel/Sheets) y backup JSON. Si uno carga algo, al otro le aparece solo.
-- **Wallet de pases y reservas**: subís los PDFs o capturas de tarjetas de embarque, reservas de hotel, tickets de tren o entradas y quedan como tarjetas tipo Apple Wallet, **ordenadas por día y por persona**, con el QR/Aztec/PDF417 listo para escanear. Si un PDF trae los pases de los dos, **se divide solo**: cada uno queda con un PDF con sus páginas. Funciona **sin conexión** (lo último que abriste queda guardado en el teléfono).
+- **Wallet de pases y reservas**: subís los PDFs o capturas de tarjetas de embarque, reservas de hotel, tickets de tren o entradas y quedan como en la billetera del iPhone: **apilados por día**, el próximo día abierto, y al tocar uno se agranda a pantalla completa y se pasa al siguiente deslizando, con el QR/Aztec/PDF417 listo para escanear. Si un PDF trae los pases de los dos, **se divide solo**: cada uno queda con un PDF con sus páginas. Funciona **sin conexión** (lo último que abriste queda guardado en el teléfono).
+- **Equipaje**: la lista de qué lleva cada uno, **dónde está** (valija, mochila, riñonera, puesto o el lugar que inventen) y de **qué tipo** es (documentos, tecnología, ropa, calzado, higiene, medicamentos, accesorios). Hay una lista de cada uno, una de los dos (botiquín, adaptadores, candado) y se puede mirar la del otro.
 
 ## Puesta en marcha
 
@@ -24,6 +25,7 @@ App web para dividir los gastos de un viaje entre dos amigos. Se usa desde el ce
 2. Abrí **SQL Editor**, pegá el contenido de `supabase/migrations/20261031000000_gastos_viaje.sql` y ejecutalo. Crea las tablas, la seguridad (RLS) y el bucket privado `receipts`. Se puede volver a correr sin problema.
    - Con la CLI: `npx supabase link --project-ref <ref>` y `npx supabase db push`.
    - Para la **Wallet** corré también `supabase/migrations/20261113000000_documentos.sql` (agrega la tabla de pases y reservas; usa el mismo bucket).
+   - Para **Equipaje** corré `supabase/migrations/20261121000000_equipaje.sql` (la tabla de las listas). Si no lo hiciste, la pestaña Equipaje lo explica paso a paso y tiene un botón para copiar el SQL y otro que abre el SQL Editor de tu proyecto.
 3. **Authentication → Sign In / Providers → Email**: dejalo habilitado. Si no querés depender del mail de confirmación, desactivá "Confirm email" (o creá los dos usuarios desde **Authentication → Users → Add user** con "Auto confirm").
 4. **Authentication → URL Configuration**: poné como Site URL la dirección donde publiques la app (y `http://localhost:5173` para probar).
 
@@ -57,9 +59,19 @@ En el celular, abrila y usá "Agregar a pantalla de inicio" para tenerla como ap
 - El código se guarda recortado (blanco y negro) junto con los datos, así se ve sin internet; tocándolo se agranda a pantalla completa (los PDF417 se giran para usar todo el alto). Subí el brillo para escanearlo.
 - **Apodos**: si en la app usan apodos y en los pasajes figura el nombre real, la Wallet muestra **"¿Quién es quién?"** con los nombres que no reconoce; elegís de quién es cada uno, queda guardado como "nombre en pasajes" y se reasignan sus documentos. También aprende cuando cambiás a mano la persona de un pase.
 - Lee **ciudades y estaciones**: debajo de los códigos de aeropuerto muestra la ciudad, en trenes y buses origen y destino (y llegada, coche, asiento), y en hoteles la ciudad.
-- **Volver a leer** (arriba en la Wallet, o en cada pase) relee los documentos ya guardados con la versión actual, sin volver a subirlos. Lo que corregiste a mano no se pisa.
-- **PDF de Juli / PDF de Santi** arma un solo PDF con todos los pases y reservas de esa persona.
+- **Volver a leer** (al pie de la Wallet, o en cada pase) relee los documentos ya guardados con la versión actual, sin volver a subirlos. Lo que corregiste a mano no se pisa.
+- Elegí a una persona arriba y al pie aparece **PDF con los pases de…**: arma un solo PDF con todos sus pases y reservas.
+- **Pase abierto**: ocupa toda la pantalla con el código grande; deslizando de costado (o con las flechas del teclado) pasás al anterior o al siguiente, y el botón **atrás** del teléfono lo cierra y lo devuelve a su lugar en la pila.
 - Al pie de cada pase o reserva está el **documento original**: las páginas de ese pase a la vista (con Abrir y Descargar) y, si venía en un PDF compartido, el **archivo completo** tal como se subió. Los documentos quedan guardados en el teléfono, así que también se abren sin conexión.
+
+## Equipaje: cómo se arma
+
+- **Tres listas**: la tuya (lo tuyo más todo lo de los dos), la **de los dos** (solo lo compartido) y la del otro, que se puede mirar pero la tilda él.
+- **Agregar es escribir**: «5 remeras», «medias x7» o «cargador» y Enter. El tipo se adivina (ropa, tecnología…) y se puede cambiar antes de agregar; el lugar es el que esté elegido abajo (se recuerda, así armás una valija por vez). Lo que escribís también busca: si ya está en la lista, aparece.
+- **Para los dos**: desde tu lista, marcá «Para los dos» al agregar (o «Es para los dos» al editar) y aparece en las tres listas. En la lista de los dos se elige quién lo lleva, o se deja «a decidir».
+- **Dónde está**: agrupado por lugar, cada bolso es una etiqueta con la lengüeta de quien lo lleva y cuántas cosas ya están guardadas. También se puede agrupar por tipo y ver solo lo que falta.
+- Si la lista está vacía, **Para empezar** propone lo básico para un viaje largo con frío; las ideas que ya están en la lista no se repiten.
+- Tildar es instantáneo aunque haya mala señal: se guarda en segundo plano y, si falla, vuelve atrás y avisa.
 
 ## Lectura con IA (recomendada)
 
@@ -99,7 +111,7 @@ Costo aproximado: 1-2 centavos de dólar por ticket y 5-15 centavos por PDF de p
 
 Para cada persona: **pagó − le corresponde + pagos que envió − pagos que recibió**. Si da positivo, el otro le debe eso. "Le corresponde" es su parte de cada gasto según la división. Los pendientes y los gastos sin cotización no entran (la app avisa cuántos hay).
 
-**Pre-viaje:** todo gasto anterior a la fecha de ida (pasajes, hoteles pagados antes) cuenta en el total y en el saldo, pero no en el **promedio por día** ni en la tabla por día, que se calculan solo con los días de viaje transcurridos. Para eso hace falta cargar la ida en Config → Viaje.
+**Pre-viaje:** todo gasto anterior a la fecha de ida (pasajes, hoteles pagados antes) cuenta en el total y en el saldo, pero no en el **promedio por día** ni en la tabla por día, que se calculan solo con los días de viaje transcurridos. Para eso hace falta la fecha de ida: si el viaje no tiene fechas y la Wallet ya tiene pases, el Resumen propone las fechas (del primer al último pase) con un toque; si no, se cargan en Config → Viaje.
 
 ## Diseño
 
@@ -114,10 +126,11 @@ npm run build     # chequeo de tipos + build de producción
 
 - `src/lib/receiptParser.ts`: heurísticas para sacar total, fecha, moneda y terminación de tarjeta del texto.
 - `src/lib/calc.ts`: conversión de monedas, verificación por tarjeta, saldos y resúmenes.
+- `src/lib/packing.ts`: listas de equipaje (qué va en cada lista, agrupar por lugar o tipo, adivinar el tipo, «5 remeras», ideas).
 - `src/lib/receipts.ts`: flujo subir → leer (IA u OCR) → borrador.
 - `src/lib/travelParser.ts`: código de tarjeta de embarque, de quién es cada pase, tipo de documento y cómo dividir un archivo.
 - `src/lib/travelDocs.ts`: render de páginas, lectura de códigos, recorte y PDF por persona.
 - `src/lib/travelAI.ts`: pide la lectura a la IA y la convierte en pases (con la lectura local como respaldo).
-- `src/components/`: pantallas (Resumen, Wallet, Gastos, Cargar, Facturas, Saldar, Config) y los editores.
+- `src/components/`: pantallas (Resumen, Wallet, Equipaje, Gastos, Cargar, Facturas, Saldar, Config) y los editores.
 - `public/sw.js`: guarda la app en el teléfono para abrirla sin conexión.
 - `supabase/migrations/`: esquema, RLS y storage. `supabase/functions/extract-receipt/` y `read-travel-doc/`: lectura con IA.

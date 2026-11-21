@@ -11,3 +11,6 @@ export const supabase = createClient(url ?? 'http://localhost:54321', key ?? 'mi
 });
 
 export const RECEIPTS_BUCKET = 'receipts';
+
+/** El "ref" del proyecto (https://<ref>.supabase.co), para abrir su SQL Editor. */
+export const supabaseProjectRef = url?.match(/^https:\/\/([a-z0-9]+)\.supabase\.co/)?.[1] ?? null;
